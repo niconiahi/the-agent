@@ -81,17 +81,18 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 
 ## Milestone: Buffer-backed file tools
 
-The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. `grep` also fills the quickfix list.
+The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. After an edit, new diagnostics inside the edited region are appended to the result, waiting briefly for an attached LSP to publish. `grep` also fills the quickfix list.
 
 ### Package: `vimtool`
 
 **Constants**:
 - `QUICKFIX_TITLE = "the-agent grep"` - title of the quickfix list grep fills
+- `DIAGNOSTICS_WAIT = 500 * time.Millisecond` - longest an edit waits for an attached LSP to publish diagnostics
 
 **Functions**:
 - `Grep(client *neovim.Nvim) tool.Tool` - `tool.GrepTool` with the same result, plus one quickfix entry per hit
 - `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
-- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark
+- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark, new diagnostics in the region appended to the result
 - `Tools(client *neovim.Nvim) []tool.Tool` - the buffer-backed file tools
 - `WithSession(invocation_context context.Context, directory string) context.Context` - the calling agent's session directory for the tools
 
@@ -113,9 +114,10 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 
 ### Lua plugin
 
-- `lua/the-agent/buffer.lua` - `read`, `edit` and `release`, each one RPC request
+- `lua/the-agent/buffer.lua` - `read`, `edit` and `release`, each one RPC request; `edit` snapshots the diagnostics on the replaced lines and `release(region, timeout)` returns the new ones in the region
 
 ### Integration tests
 
 - `integration/fill_quickfix_from_grep_test.go` - a grep tool call fills the quickfix list with file, line and text per hit, for a directory and a single file, and the model's result is rg's output
 - `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`
+- `integration/report_edit_diagnostics_test.go` - diagnostics published through `vim.diagnostic.set` and through an in-process fake LSP; only new ones inside the edited region are reported, no LSP means no wait, and a silent LSP costs at most `DIAGNOSTICS_WAIT`

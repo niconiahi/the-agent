@@ -41,10 +41,12 @@ func Edit(client *neovim.Nvim) tool.Tool {
 			if error != nil {
 				return tool.ToolResult{}, error
 			}
-			if _, error := call(client, "release", edited.Region); error != nil {
+			released, error := call(client, "release", edited.Region, DIAGNOSTICS_WAIT.Milliseconds())
+			if error != nil {
 				return tool.ToolResult{}, error
 			}
 			text := fmt.Sprintf("Edited %s\n\n%s", path, tool.Diff(old_text, new_text))
+			text += report(released.Diagnostics)
 			return tool.ToolResult{Content: []message.Content{message.TextContent{Text: text}}}, nil
 		})
 }

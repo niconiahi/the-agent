@@ -29,10 +29,19 @@ type region struct {
 	Mark   int `msgpack:"mark"`
 }
 
+type diagnostic struct {
+	Line     int    `msgpack:"line"`
+	Column   int    `msgpack:"column"`
+	Severity string `msgpack:"severity"`
+	Message  string `msgpack:"message"`
+	Source   string `msgpack:"source"`
+}
+
 type outcome struct {
-	Content string `msgpack:"content"`
-	Error   string `msgpack:"error"`
-	Region  region `msgpack:"region"`
+	Content     string       `msgpack:"content"`
+	Error       string       `msgpack:"error"`
+	Region      region       `msgpack:"region"`
+	Diagnostics []diagnostic `msgpack:"diagnostics"`
 }
 
 func call(client *neovim.Nvim, function string, arguments ...any) (outcome, error) {
