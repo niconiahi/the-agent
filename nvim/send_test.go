@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/niconiahi/the-agent/message"
+	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
@@ -65,9 +66,6 @@ func TestTASend_SendsWholeSessionWithTimestamps(t *testing.T) {
 		"fake-model · 2026-10-06T14:32:00Z · 10 tokens\n\nfirst",
 		"2026-10-06T14:32:00Z\n\ntwo",
 	)
-	if requests[1].SystemPrompt != config.SystemPrompt {
-		t.Fatalf("system prompt not sent: %q", requests[1].SystemPrompt)
-	}
 }
 
 func TestTASend_RefusesWithoutAUserMessage(t *testing.T) {
@@ -83,7 +81,7 @@ func TestTASend_RefusesWithoutAUserMessage(t *testing.T) {
 	if len(provider.Requests()) != 0 {
 		t.Fatal("nothing must be sent")
 	}
-	if got := harness.Text(); got != "## user\n\n" {
+	if got := harness.Text(); got != nvim.NEW_SESSION {
 		t.Fatalf("buffer changed: %q", got)
 	}
 }

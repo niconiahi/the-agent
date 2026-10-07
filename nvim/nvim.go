@@ -18,11 +18,14 @@ import (
 
 	"github.com/niconiahi/the-agent/model"
 	"github.com/niconiahi/the-agent/sender"
+	"github.com/niconiahi/the-agent/session"
 	"github.com/niconiahi/the-agent/tool"
 )
 
 type Config struct {
-	Model         *model.Model
+	Model *model.Model
+	// SystemPrompt seeds .the-agent/system_prompt.md when :TA finds none.
+	// What is sent is that file, through the link at the top of the session.
 	SystemPrompt  string
 	Tools         []tool.Tool
 	StreamOptions *sender.StreamOptions
@@ -38,10 +41,17 @@ const (
 	METHOD_OPEN  = "the_agent_open"
 	METHOD_SEND  = "the_agent_send"
 	METHOD_ABORT = "the_agent_abort"
+	// METHOD_COUNT is sent as a notification; it updates b:the_agent_tokens.
+	METHOD_COUNT = "the_agent_count"
 )
 
 // NEW_SESSION is the contents of a freshly created session.md.
-const NEW_SESSION = "## user\n\n"
+const NEW_SESSION = session.SYSTEM_PROMPT_LINK + "\n\n## user\n\n"
+
+// SystemPromptPath is the system prompt every session in project links to.
+func SystemPromptPath(project string) string {
+	return filepath.Join(project, ".the-agent", "system_prompt.md")
+}
 
 type frontend struct {
 	config  Config
@@ -58,6 +68,7 @@ func Attach(client *neovim.Nvim, config Config) error {
 		client.RegisterHandler(METHOD_OPEN, current.open),
 		client.RegisterHandler(METHOD_SEND, current.send),
 		client.RegisterHandler(METHOD_ABORT, current.abort),
+		client.RegisterHandler(METHOD_COUNT, current.refresh),
 	)
 }
 
@@ -78,6 +89,10 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 	}
 	path := SessionPath(project, name)
 
+	if error := current.seed_system_prompt(project); error != nil {
+		return error
+	}
+
 	if _, error := os.Stat(path); errors.Is(error, os.ErrNotExist) {
 		if error := os.MkdirAll(filepath.Dir(path), 0o755); error != nil {
 			return error
@@ -94,4 +109,17 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 		return error
 	}
 	return client.Command("edit " + escaped)
+}
+
+// seed_system_prompt writes the configured system prompt to
+// .the-agent/system_prompt.md unless that file already exists.
+func (current *frontend) seed_system_prompt(project string) error {
+	path := SystemPromptPath(project)
+	if _, error := os.Stat(path); !errors.Is(error, os.ErrNotExist) {
+		return error
+	}
+	if error := os.MkdirAll(filepath.Dir(path), 0o755); error != nil {
+		return error
+	}
+	return os.WriteFile(path, []byte(strings.TrimSpace(current.config.SystemPrompt)+"\n"), 0o644)
 }

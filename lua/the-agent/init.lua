@@ -11,6 +11,12 @@ M.config = {
   -- An already open RPC channel to the Go side (used by tests). When nil the
   -- binary is started on first use.
   chan = nil,
+  -- Token ceiling of a session. :TASend refuses above it. nil means 200k;
+  -- it is always clamped to the model's context window.
+  ceiling = nil,
+  -- Set a statusline showing the token count on session windows. Turn off
+  -- when your statusline plugin uses require("the-agent").statusline().
+  statusline = true,
 }
 
 function M.setup(opts)
@@ -100,5 +106,30 @@ end
 function M.abort()
   vim.rpcrequest(channel(), "the_agent_abort", vim.api.nvim_get_current_buf())
 end
+
+-- Asks Go to recount a session buffer; the answer lands in b:the_agent_tokens.
+function M.refresh(buf)
+  vim.rpcnotify(channel(), "the_agent_count", buf or vim.api.nvim_get_current_buf())
+end
+
+-- Statusline component: the session's token count against its ceiling,
+-- highlighted with TheAgentTokensNear (red) close to the ceiling. Empty for
+-- buffers that aren't sessions. Usable from lualine and friends too.
+function M.statusline()
+  local win = vim.g.statusline_winid
+  local buf = (win and vim.api.nvim_win_is_valid(win)) and vim.api.nvim_win_get_buf(win) or 0
+  local tokens = vim.b[buf].the_agent_tokens
+  if type(tokens) ~= "table" then
+    return ""
+  end
+  if tokens.near then
+    return "%#TheAgentTokensNear#" .. tokens.text .. "%*"
+  end
+  return tokens.text
+end
+
+-- The window-local statusline set on session buffers when config.statusline
+-- is true: Neovim's default layout with the token count on the right.
+M.STATUSLINE = "%<%f %h%m%r%=%{%v:lua.require'the-agent'.statusline()%}  %-14.(%l,%c%V%) %P"
 
 return M

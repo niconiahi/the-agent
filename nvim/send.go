@@ -45,6 +45,28 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
 	}
 
+	dir, error := session_dir(client, handle)
+	if error != nil {
+		return error
+	}
+	prompt, error := system_prompt(parsed, dir)
+	if error != nil {
+		return error
+	}
+	if messages, error = session.LoadImages(messages, dir); error != nil {
+		return error
+	}
+	last = messages[len(messages)-1].(message.UserMessage)
+
+	size, error := current.count(client, prompt, messages)
+	if error != nil {
+		return error
+	}
+	if size.above() {
+		publish(client, handle, size)
+		return ceiling_error(size)
+	}
+
 	running := current.start(buffer)
 	if running == nil {
 		return errors.New("a turn is already running in this session")
@@ -64,7 +86,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	go func() {
 		defer current.finish(buffer)
 		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
-		error := current.run(running.context, messages[:len(messages)-1], last, replies.handle)
+		error := current.run(running.context, prompt, messages[:len(messages)-1], last, replies.handle)
 		if running.context.Err() != nil {
 			// Aborted with :TAAbort: what streamed so far stays, no error.
 			error = nil
@@ -80,17 +102,19 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
 		}
+		current.refresh(client, buffer)
 	}()
 	return nil
 }
 
-// run sends history plus last to the model, passing every agent event to
-// listener, and returns when the turn chain ends or ctx is cancelled.
-func (current *frontend) run(ctx context.Context, history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
+// run sends history plus last to the model under the system prompt, passing
+// every agent event to listener, and returns when the turn chain ends or ctx
+// is cancelled.
+func (current *frontend) run(ctx context.Context, prompt string, history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
-		orchestrator.WithSystemPrompt(current.config.SystemPrompt),
+		orchestrator.WithSystemPrompt(prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
 		// The agent only holds this send's messages; the rest of the session
 		// is prepended on every request.
