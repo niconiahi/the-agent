@@ -172,37 +172,92 @@ type reply_writer struct {
 	open    bool // an assistant turn has been started and not ended
 	heading int  // buffer line of the open turn's heading
 	at      time.Time
+	// blocks reports whether the open turn has a block (text, thinking or
+	// tool call) yet; the next one is separated from it by a blank line.
+	blocks bool
+	// in_text reports whether a text block is being streamed.
+	in_text bool
 	// held is trailing whitespace not written yet: it is only written once
-	// more text follows, so a turn's body never ends in blank space.
+	// more text follows, so a text block never ends in blank space.
 	held string
 	// wrote reports whether any assistant turn was written.
 	wrote bool
+	// failure collects errors rendering blocks.
+	failure error
 }
 
 func (writer *reply_writer) handle(event orchestrator.AgentEvent) {
 	switch typed := event.(type) {
 	case orchestrator.MessageUpdateEvent:
-		if delta, ok := typed.SenderEvent.(sender.EventTextDelta); ok {
-			writer.text(delta.Delta)
+		switch update := typed.SenderEvent.(type) {
+		case sender.EventTextDelta:
+			writer.text(update.Delta)
+		case sender.EventTextEnd:
+			writer.end_text()
+		case sender.EventThinkingEnd:
+			// Thinking is written whole: its fence length depends on its text.
+			if strings.TrimSpace(update.FullText) != "" {
+				writer.block(session.ThinkingBlock(update.FullText))
+			}
+		case sender.EventToolCallEnd:
+			writer.open_turn()
+			block, error := session.ToolCallBlock(update.ToolCall, writer.at)
+			if error != nil {
+				writer.failure = errors.Join(writer.failure, error)
+				return
+			}
+			writer.block(block)
 		}
 	case orchestrator.MessageEndEvent:
-		if reply, ok := typed.Message.(*message.AssistantMessage); ok {
+		switch reply := typed.Message.(type) {
+		case *message.AssistantMessage:
 			writer.end(reply)
+		case message.ToolResultMessage:
+			// Results go at the end of the turn that called the tool.
+			writer.output.begin(session.ToolResultBlock(reply, writer.now()))
 		}
 	}
 }
 
+// open_turn starts an assistant turn with a provisional heading, completed
+// by end once the reply's token count is known.
+func (writer *reply_writer) open_turn() {
+	if writer.open {
+		return
+	}
+	writer.open = true
+	writer.wrote = true
+	writer.blocks = false
+	writer.at = writer.now()
+	writer.heading = writer.output.begin(writer.heading_line(""))
+	writer.output.append("\n")
+}
+
+// start_block opens the turn if needed and separates a new block from the
+// previous one.
+func (writer *reply_writer) start_block() {
+	writer.end_text()
+	writer.open_turn()
+	writer.output.append("\n")
+	if writer.blocks {
+		writer.output.append("\n")
+	}
+	writer.blocks = true
+}
+
+func (writer *reply_writer) block(text string) {
+	writer.start_block()
+	writer.output.append(text)
+}
+
 func (writer *reply_writer) text(delta string) {
-	if !writer.open {
+	if !writer.in_text {
 		delta = strings.TrimLeftFunc(delta, unicode.IsSpace)
 		if delta == "" {
 			return
 		}
-		writer.open = true
-		writer.wrote = true
-		writer.at = writer.now()
-		writer.heading = writer.output.begin(writer.heading_line(""))
-		writer.output.append("\n\n")
+		writer.start_block()
+		writer.in_text = true
 	}
 	text := writer.held + delta
 	trimmed := strings.TrimRightFunc(text, unicode.IsSpace)
@@ -210,13 +265,18 @@ func (writer *reply_writer) text(delta string) {
 	writer.output.append(trimmed)
 }
 
+func (writer *reply_writer) end_text() {
+	writer.in_text = false
+	writer.held = ""
+}
+
 // end completes the open turn's heading with how the reply ended.
 func (writer *reply_writer) end(reply *message.AssistantMessage) {
+	writer.end_text()
 	if !writer.open {
 		return
 	}
 	writer.open = false
-	writer.held = ""
 	outcome := session.FormatTokens(reply.Usage.TotalTokens)
 	switch reply.StopReason {
 	case message.STOP_REASON_ABORTED, message.STOP_REASON_ERROR:

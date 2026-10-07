@@ -69,6 +69,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 			// Aborted with :TAAbort: what streamed so far stays, no error.
 			error = nil
 		}
+		error = errors.Join(error, replies.failure)
 
 		if replies.wrote {
 			output.begin("## user\n")

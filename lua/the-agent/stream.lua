@@ -26,6 +26,14 @@ function M.set_lines(buf, first, last, lines)
     error(err, 0)
   end
 
+  -- Thinking blocks arrive whole, so any in lines is complete: fold it.
+  for _, line in ipairs(lines) do
+    if line:match("^ *```+thinking") then
+      require("the-agent").fold_thinking(buf, first + 1)
+      break
+    end
+  end
+
   bottom = vim.api.nvim_buf_line_count(buf)
   for _, win in ipairs(followers) do
     vim.api.nvim_win_set_cursor(win, { bottom, 0 })

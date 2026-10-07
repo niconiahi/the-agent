@@ -2,6 +2,7 @@ package nvimtest
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -35,10 +36,14 @@ func Config() nvim.Config {
 	}
 }
 
-// Reply is one scripted assistant response. Its text is streamed as one
-// EventTextDelta per entry in Deltas, sleeping Delay before each one.
+// Reply is one scripted assistant response, streamed in content order:
+// thinking as one EventThinkingDelta per entry in Thinking, text as one
+// EventTextDelta per entry in Deltas, then each tool call as
+// EventToolCallStart/Delta/End. Delay is slept before every delta.
 type Reply struct {
+	Thinking    []string
 	Deltas      []string
+	ToolCalls   []message.ToolCall
 	Delay       time.Duration
 	TotalTokens int
 	// StopReason defaults to stop. Use error to simulate a failed request.
@@ -102,33 +107,72 @@ func (provider *Provider) stream(ctx context.Context, target *model.Model, llm_c
 		}
 		stream.Push(sender.EventStart{Message: output})
 
-		text := ""
-		if len(reply.Deltas) > 0 {
-			stream.Push(sender.EventTextStart{ContentIndex: 0, Message: output})
-		}
-		for _, delta := range reply.Deltas {
+		// wait sleeps Delay, or reports an abort when ctx is cancelled first.
+		wait := func() bool {
 			select {
 			case <-ctx.Done():
 				aborted := &message.AssistantMessage{StopReason: message.STOP_REASON_ABORTED, Timestamp: time.Now()}
 				stream.Push(sender.EventError{StopReason: message.STOP_REASON_ABORTED, Message: aborted})
-				return
+				return false
 			case <-time.After(reply.Delay):
+				return true
 			}
-			text += delta
-			stream.Push(sender.EventTextDelta{ContentIndex: 0, Delta: delta, Message: output})
+		}
+
+		content := []message.Content{}
+		if len(reply.Thinking) > 0 {
+			index := len(content)
+			stream.Push(sender.EventThinkingStart{ContentIndex: index, Message: output})
+			thinking := ""
+			for _, delta := range reply.Thinking {
+				if !wait() {
+					return
+				}
+				thinking += delta
+				stream.Push(sender.EventThinkingDelta{ContentIndex: index, Delta: delta, Message: output})
+			}
+			stream.Push(sender.EventThinkingEnd{ContentIndex: index, FullText: thinking, Message: output})
+			content = append(content, message.ThinkingContent{Thinking: thinking})
 		}
 		if len(reply.Deltas) > 0 {
-			stream.Push(sender.EventTextEnd{ContentIndex: 0, FullText: text, Message: output})
+			index := len(content)
+			stream.Push(sender.EventTextStart{ContentIndex: index, Message: output})
+			text := ""
+			for _, delta := range reply.Deltas {
+				if !wait() {
+					return
+				}
+				text += delta
+				stream.Push(sender.EventTextDelta{ContentIndex: index, Delta: delta, Message: output})
+			}
+			stream.Push(sender.EventTextEnd{ContentIndex: index, FullText: text, Message: output})
+			if text != "" {
+				content = append(content, message.TextContent{Text: text})
+			}
+		}
+		for _, call := range reply.ToolCalls {
+			index := len(content)
+			stream.Push(sender.EventToolCallStart{ContentIndex: index, Message: output})
+			if !wait() {
+				return
+			}
+			arguments, _ := json.Marshal(call.Arguments)
+			stream.Push(sender.EventToolCallDelta{ContentIndex: index, Delta: string(arguments), Message: output})
+			stream.Push(sender.EventToolCallEnd{ContentIndex: index, ToolCall: call, Message: output})
+			content = append(content, call)
 		}
 
 		final := *output
-		if text != "" {
-			final.Content = []message.Content{message.TextContent{Text: text}}
+		if len(content) > 0 {
+			final.Content = content
 		}
 		final.Usage = message.Usage{TotalTokens: reply.TotalTokens}
 		final.StopReason = reply.StopReason
 		if final.StopReason == "" {
 			final.StopReason = message.STOP_REASON_STOP
+			if len(reply.ToolCalls) > 0 {
+				final.StopReason = message.STOP_REASON_TOOL_USE
+			}
 		}
 		final.ErrorMessage = reply.ErrorMessage
 		if final.StopReason == message.STOP_REASON_ERROR || final.StopReason == message.STOP_REASON_ABORTED {
