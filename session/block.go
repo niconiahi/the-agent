@@ -97,6 +97,71 @@ func segments(body string) []segment {
 	return append(result, segment{text: text})
 }
 
+// repair removes from an assistant turn's body every tool_call without a
+// later tool_result of the same id, and every tool_result without an
+// earlier tool_call, together with the blank line that separated each from
+// what followed. Providers reject a request with a broken pair. Thinking is
+// never touched.
+func repair(body string) string {
+	type block struct {
+		kind  string
+		id    string
+		start int
+		end   int // last line, inclusive
+	}
+	blocks := []block{}
+	lines := split_lines(body)
+	for index := 0; index < len(lines); index++ {
+		run, info, ok := fence_open(strings.TrimSuffix(lines[index], "\n"))
+		if !ok {
+			continue
+		}
+		kind, attrs := parse_info(info)
+		closing := index + 1
+		for closing < len(lines) && !fence_close(strings.TrimSuffix(lines[closing], "\n"), run) {
+			closing++
+		}
+		if kind == BLOCK_TOOL_CALL || kind == BLOCK_TOOL_RESULT {
+			blocks = append(blocks, block{kind: kind, id: attrs["id"], start: index, end: min(closing, len(lines)-1)})
+		}
+		index = closing
+	}
+
+	called := map[string]bool{}
+	answered := map[string]bool{}
+	for _, current := range blocks {
+		if current.kind == BLOCK_TOOL_CALL {
+			called[current.id] = true
+		} else if called[current.id] {
+			answered[current.id] = true
+		}
+	}
+	removed := map[int]bool{}
+	for _, current := range blocks {
+		if answered[current.id] {
+			continue
+		}
+		for line := current.start; line <= current.end; line++ {
+			removed[line] = true
+		}
+		if after := current.end + 1; after < len(lines) && strings.TrimSpace(lines[after]) == "" {
+			removed[after] = true
+		} else if before := current.start - 1; before >= 0 && strings.TrimSpace(lines[before]) == "" && !removed[before] {
+			removed[before] = true
+		}
+	}
+	if len(removed) == 0 {
+		return body
+	}
+	var builder strings.Builder
+	for index, line := range lines {
+		if !removed[index] {
+			builder.WriteString(line)
+		}
+	}
+	return builder.String()
+}
+
 // assistant_messages turns an assistant turn into the messages it stands
 // for: an assistant message per run of text, thinking and tool calls, and a
 // tool result message per tool_result block. info (the heading after the

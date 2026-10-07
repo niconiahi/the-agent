@@ -75,11 +75,13 @@ func Parse(text string) (*Session, error) {
 		offset = next
 	}
 
-	for _, current := range parsed.turns {
+	for index := range parsed.turns {
+		current := &parsed.turns[index]
 		if current.role != ROLE_ASSISTANT {
 			continue
 		}
-		if _, error := assistant_messages(heading_info(current), current.body); error != nil {
+		current.body = repair(current.body)
+		if _, error := assistant_messages(heading_info(*current), current.body); error != nil {
 			return nil, fmt.Errorf("%s: %w", current.heading, error)
 		}
 	}

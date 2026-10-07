@@ -161,7 +161,7 @@ func mustTime(t *testing.T, value string) time.Time {
 }
 
 func TestParse_RejectsToolCallWhoseArgumentsAreNotJSON(t *testing.T) {
-	_, error := session.Parse("## assistant\n\n```tool_call id=tc_1 name=read ts=2026-10-06T14:33:00Z\n{\"path\": \n```\n")
+	_, error := session.Parse("## assistant\n\n```tool_call id=tc_1 name=read ts=2026-10-06T14:33:00Z\n{\"path\": \n```\n\n```tool_result id=tc_1\nok\n```\n")
 	if error == nil || !strings.Contains(error.Error(), "tc_1") {
 		t.Fatalf("want an error naming tc_1, got %v", error)
 	}
@@ -176,6 +176,7 @@ func TestAppend_RendersThinkingToolCallsAndResultsThatParseBack(t *testing.T) {
 			message.ThinkingContent{Thinking: "hmm <a> & b"},
 			message.TextContent{Text: "looking"},
 			message.ToolCall{ID: "tc_1", Name: "read", Arguments: map[string]any{"path": "a.md"}},
+			message.ToolCall{ID: "tc_2", Name: "read", Arguments: map[string]any{"path": "b.md"}},
 		},
 		Usage: message.Usage{TotalTokens: 1240},
 	})
@@ -203,6 +204,7 @@ func TestAppend_RendersThinkingToolCallsAndResultsThatParseBack(t *testing.T) {
 		"```thinking\nhmm <a> & b\n```\n\n" +
 		"looking\n\n" +
 		"```tool_call id=tc_1 name=read ts=2026-10-06T14:33:00Z\n{\"path\":\"a.md\"}\n```\n\n" +
+		"```tool_call id=tc_2 name=read ts=2026-10-06T14:33:00Z\n{\"path\":\"b.md\"}\n```\n\n" +
 		"````tool_result id=tc_1 ts=2026-10-06T14:33:00Z\n# A\n\n```go\nx\n```\n````\n\n" +
 		"```tool_result id=tc_2 ts=2026-10-06T14:33:00Z error=true\nno such file\n```\n\n" +
 		"## assistant · kimi-k2.5 · 2026-10-06T14:33:00Z · 1,300 tokens\n\ndone\n\n" +
@@ -295,5 +297,75 @@ func TestMessages_ToolBlocksBecomeToolCallsResultsAndThinking(t *testing.T) {
 	role, text := role_and_text(t, messages[3])
 	if role != "assistant" || text != "kimi-k2.5 · 2026-10-06T14:33:02Z · 1,300 tokens\n\ndone, see:\n\n```go\nfunc main() {}\n```" {
 		t.Errorf("message 3: got %s %q", role, text)
+	}
+}
+
+func TestParse_DeletedToolResultRemovesItsCallFromMessagesAndFile(t *testing.T) {
+	edited := strings.Replace(tool_session, "```tool_result id=tc_3 ts=2026-10-06T14:33:01Z\nedit applied\n```\n\n", "", 1)
+	want := "## user · 2026-10-06T14:32:00Z\n\nfix the server\n\n" +
+		"## assistant · kimi-k2.5 · 2026-10-06T14:33:00Z · 1,240 tokens\n\n" +
+		"```thinking\nthe handler is registered twice…\n```\n\n" +
+		"let me look\n\n" +
+		"## assistant · kimi-k2.5 · 2026-10-06T14:33:02Z · 1,300 tokens\n\n" +
+		"done, see:\n\n```go\nfunc main() {}\n```\n\n" +
+		"## user\n\n"
+
+	parsed, error := session.Parse(edited)
+	if error != nil {
+		t.Fatalf("parse: %v", error)
+	}
+	if got := parsed.Render(); got != want {
+		t.Fatalf("file\nwant:\n%q\ngot:\n%q", want, got)
+	}
+	for _, value := range parsed.Messages() {
+		assistant, ok := value.(message.AssistantMessage)
+		if !ok {
+			continue
+		}
+		for _, content := range assistant.Content {
+			if _, ok := content.(message.ToolCall); ok {
+				t.Fatalf("orphaned tool call was sent: %#v", assistant)
+			}
+		}
+		if assistant.StopReason == message.STOP_REASON_TOOL_USE {
+			t.Errorf("stop reason still tool_use: %#v", assistant)
+		}
+	}
+}
+
+func TestParse_DeletedToolCallRemovesItsResultFromMessagesAndFile(t *testing.T) {
+	edited := strings.Replace(tool_session, "```tool_call id=tc_3 name=edit ts=2026-10-06T14:33:00Z\n{\"new_text\":\"b\",\"old_text\":\"a\",\"path\":\"server.go\"}\n```\n\n", "", 1)
+	want := strings.Replace(edited, "```tool_result id=tc_3 ts=2026-10-06T14:33:01Z\nedit applied\n```\n\n", "", 1)
+
+	parsed, error := session.Parse(edited)
+	if error != nil {
+		t.Fatalf("parse: %v", error)
+	}
+	if got := parsed.Render(); got != want {
+		t.Fatalf("file\nwant:\n%q\ngot:\n%q", want, got)
+	}
+	for _, value := range parsed.Messages() {
+		if result, ok := value.(message.ToolResultMessage); ok {
+			t.Fatalf("orphaned tool result was sent: %#v", result)
+		}
+	}
+}
+
+func TestParse_EditedOrDeletedThinkingIsNeverRepaired(t *testing.T) {
+	cases := map[string]string{
+		"edited":  strings.Replace(tool_session, "the handler is registered twice…", "nope, it is fine", 1),
+		"deleted": strings.Replace(tool_session, "```thinking\nthe handler is registered twice…\n```\n\n", "", 1),
+		"emptied": strings.Replace(tool_session, "the handler is registered twice…\n", "", 1),
+	}
+	for name, text := range cases {
+		t.Run(name, func(t *testing.T) {
+			parsed, error := session.Parse(text)
+			if error != nil {
+				t.Fatalf("parse: %v", error)
+			}
+			if got := parsed.Render(); got != text {
+				t.Fatalf("thinking edit was repaired\nwant:\n%q\ngot:\n%q", text, got)
+			}
+		})
 	}
 }
