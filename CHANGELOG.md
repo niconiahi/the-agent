@@ -473,3 +473,27 @@ An agent never edits from a stale view. `edit` compares the buffer's `changedtic
 ### Integration tests
 
 - `integration/reject_stale_edits_test.go` - typing after the agent's `read` rejects its `edit`; another session's edit after the agent's `read` rejects it; consecutive edits after one `read` succeed; re-reading clears the rejection
+
+## Milestone: Write leases and locks across agents
+
+Parallel agents can't overwrite each other or me. An agent takes a write lease on a file at its first change and keeps it until its task ends; another agent's change to that file fails at once with `<path> is being edited by subagent <session>/<folder>; work on other files or finish without it` (or `by session <name>`), never waiting. Leased buffers are locked with `modifiable=false`, flipped in the same request as the change, so I can never type into one; files an agent only read stay editable. A running session holds the lease on its own `session.md`, so no other agent can change it, and `:TASend` on a `session.md` an agent holds is refused until that agent ends.
+
+### Package: `vimtool`
+
+- `lease.go` - the process-wide lease table (`map[path]agent` behind a mutex); `edit`, `write`, `filter` and `bash_write`'s replay take the calling agent's lease before changing a file, and a lease taken by a change that failed is given back
+- `Lease(client *neovim.Nvim, agent string, path string) error` - takes a lease as a change would; `nvim` uses it for a running session's own `session.md`
+- `Release(client *neovim.Nvim, agent string) error` - ends every lease an agent holds and unlocks the buffers they locked
+- `LEASE_ADVICE = "work on other files or finish without it"`
+
+### Package: `nvim`
+
+- A send leases its `session.md` before streaming into it, and is refused when another agent holds it; a child's `Host.Open` does the same for the child's file
+- An agent's leases are released when its task ends, before its file gets the closing `## user`: a root session's turn (aborted or not) and a child's run
+
+### Lua plugin
+
+- `buffer.lua` - `edit`, `write` and `filter` run under `leased`: a buffer the agent's own lease locked is unlocked for the change and locked again with `b:the_agent_lease`, in the same request; a buffer locked by anything else (a running `session.md`) is refused, and `delete` refuses it too; `release` unlocks an agent's buffers
+
+### Integration tests
+
+- `integration/lease_files_across_agents_test.go` - two workers: the second's edit of the first's file fails at once naming the holder, and succeeds once the first ended; a leased buffer can't be typed into while one the agent only read can, and it unlocks when the turn ends; a leased buffer is never modifiable between requests across `edit`, `write` and `filter`; another agent's edit of a running session's `session.md` fails naming that session; `:TASend` on a `session.md` an agent leased is refused until the agent ends; `bash_write` leaves out the files another agent leased and applies the rest

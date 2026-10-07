@@ -87,6 +87,55 @@ local function stale(buffer, agent)
   return vim.api.nvim_buf_get_changedtick(buffer) ~= seen
 end
 
+local ADVICE = "; work on other files or finish without it"
+
+-- Whether buffer is locked by anything but the agent's own lease: a
+-- running session's session.md, or a buffer I made unmodifiable.
+local function locked(buffer, agent)
+  return not vim.bo[buffer].modifiable and vim.b[buffer].the_agent_lease ~= agent
+end
+
+local function locked_error(path)
+  return { error = vim.fn.fnamemodify(path, ":.") .. " is locked in the editor" .. ADVICE }
+end
+
+-- Runs change, which changes the buffer of path, with that buffer unlocked
+-- when the agent's own lease locked it, and locks it again under the
+-- agent's lease when the change succeeded and lease is set. Both flips
+-- happen in this one request, so there is no moment in which I could type
+-- into a leased buffer, and a failed first change leaves it as it was.
+local function leased(path, agent, lease, change)
+  local buffer = find(path)
+  local held = false
+  if buffer then
+    if locked(buffer, agent) then
+      return locked_error(path)
+    end
+    held = not vim.bo[buffer].modifiable
+    vim.bo[buffer].modifiable = true
+  end
+  local result = change()
+  buffer = find(path)
+  if buffer and (held or (lease and not result.error)) then
+    vim.bo[buffer].modifiable = false
+    vim.b[buffer].the_agent_lease = agent
+  end
+  return result
+end
+
+-- Unlocks the buffers of paths that the agent's lease locked, when its
+-- task ends. Buffers locked by anything else are left alone.
+function M.release(paths, agent)
+  for _, path in ipairs(paths) do
+    local buffer = find(path)
+    if buffer and vim.b[buffer].the_agent_lease == agent then
+      vim.bo[buffer].modifiable = true
+      vim.b[buffer].the_agent_lease = nil
+    end
+  end
+  return vim.empty_dict()
+end
+
 -- The loaded buffer for path, loading the file without showing it; nil when
 -- the file is neither loaded nor readable.
 function M.open(path)
@@ -307,11 +356,10 @@ end
 
 -- Replaces the one occurrence of old_text, marks the new text with an
 -- extmark and saves.
-function M.edit(path, old_text, new_text, agent, stamp)
+local function edit(path, old_text, new_text, agent, stamp)
   if old_text == "" then
     return { error = "old_text must not be empty" }
   end
-  path = resolve(path)
   if not find(path) and vim.fn.filereadable(path) == 0 then
     return missing(path)
   end
@@ -340,8 +388,7 @@ end
 
 -- Sets the buffer's whole content, creating the file (and its directory)
 -- when it does not exist yet.
-function M.write(path, text, agent, stamp)
-  path = resolve(path)
+local function write(path, text, agent, stamp)
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
   local buffer, failure = prepare(path, agent, stamp)
   if not buffer then
@@ -362,6 +409,9 @@ end
 function M.delete(path, agent, stamp)
   path = resolve(path)
   local buffer = find(path)
+  if buffer and locked(buffer, agent) then
+    return locked_error(path)
+  end
   if buffer and vim.bo[buffer].modified then
     if agent == nil or agent == "" then
       return { error = "the file has unsaved changes in the editor" }
@@ -384,8 +434,7 @@ end
 
 -- Runs command over the whole buffer like :%!command. A command that fails
 -- is undone at once, so it leaves neither text nor an undo step behind.
-function M.filter(path, command, agent, stamp)
-  path = resolve(path)
+local function filter(path, command, agent, stamp)
   if not find(path) and vim.fn.filereadable(path) == 0 then
     return missing(path)
   end
@@ -407,6 +456,29 @@ function M.filter(path, command, agent, stamp)
   local last_row = vim.api.nvim_buf_line_count(buffer) - 1
   local last_line = vim.api.nvim_buf_get_lines(buffer, last_row, last_row + 1, true)[1]
   return finish(buffer, agent, 0, 0, last_row, #last_line)
+end
+
+-- The changes an agent makes, each in one request under its lease (lease
+-- is false outside a session, where nothing is leased).
+function M.edit(path, old_text, new_text, agent, stamp, lease)
+  path = resolve(path)
+  return leased(path, agent, lease, function()
+    return edit(path, old_text, new_text, agent, stamp)
+  end)
+end
+
+function M.write(path, text, agent, stamp, lease)
+  path = resolve(path)
+  return leased(path, agent, lease, function()
+    return write(path, text, agent, stamp)
+  end)
+end
+
+function M.filter(path, command, agent, stamp, lease)
+  path = resolve(path)
+  return leased(path, agent, lease, function()
+    return filter(path, command, agent, stamp)
+  end)
 end
 
 -- Ends a change's region: waits up to `timeout` milliseconds for an attached

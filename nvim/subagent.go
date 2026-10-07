@@ -1,6 +1,7 @@
 package nvim
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/niconiahi/the-agent/session"
 	"github.com/niconiahi/the-agent/subagent"
 	"github.com/niconiahi/the-agent/tool"
+	"github.com/niconiahi/the-agent/vimtool"
 )
 
 type host struct {
@@ -95,20 +97,26 @@ func (current host) Open(path string) (func(orchestrator.AgentEvent), func(error
 	if error != nil {
 		return nil, nil, error
 	}
-	output, error := start_stream(current.client, buffer, text, text)
-	if error != nil {
+	directory := filepath.Dir(path)
+	if error := vimtool.Lease(current.client, directory, path); error != nil {
 		return nil, nil, error
 	}
-	directory := filepath.Dir(path)
+	output, error := start_stream(current.client, buffer, text, text)
+	if error != nil {
+		return nil, nil, errors.Join(error, vimtool.Release(current.client, directory))
+	}
 	writer := current.frontend.start_writer(current.client, output, directory)
 	remove := current.frontend.routes.add(directory, writer.handle)
-	return current.frontend.routes.route, current.end(writer, remove), nil
+	return current.frontend.routes.route, current.end(directory, writer, remove), nil
 }
 
-func (current host) end(writer *session_writer, remove func()) func(error) {
+// end finishes the child's file and releases the child's write leases: its
+// task is over.
+func (current host) end(directory string, writer *session_writer, remove func()) func(error) {
 	return func(error) {
 		remove()
-		if failure := writer.finish(); failure != nil {
+		failure := errors.Join(vimtool.Release(current.client, directory), writer.finish())
+		if failure != nil {
 			notify(current.client, failure.Error(), LOG_LEVEL_ERROR)
 		}
 	}

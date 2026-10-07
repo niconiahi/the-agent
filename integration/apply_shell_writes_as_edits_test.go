@@ -56,14 +56,22 @@ func local_binary(t *testing.T) string {
 
 func start_with_local_bash_write(t *testing.T, config nvim.Config, calls ...message.ToolCall) (*nvimtest.Harness, *nvimtest.Provider) {
 	t.Helper()
-	binary := local_binary(t)
 	replies := []nvimtest.Reply{}
 	for _, call := range calls {
 		replies = append(replies, nvimtest.Reply{ToolCalls: []message.ToolCall{call}})
 	}
 	replies = append(replies, nvimtest.Text("done", 10))
 	provider := nvimtest.RegisterProvider(t, replies...)
-	harness := nvimtest.StartWithTools(t, config, func(client *neovim.Nvim) []tool.Tool {
+	harness := nvimtest.StartWithTools(t, config, local_bash_write(t, config))
+	return harness, provider
+}
+
+// local_bash_write builds bash_write running as me in a local clone, with
+// its changes replayed through the buffers.
+func local_bash_write(t *testing.T, config nvim.Config) func(*neovim.Nvim) []tool.Tool {
+	t.Helper()
+	binary := local_binary(t)
+	return func(client *neovim.Nvim) []tool.Tool {
 		project := config.Project
 		if project == "" {
 			var directory string
@@ -78,8 +86,7 @@ func start_with_local_bash_write(t *testing.T, config nvim.Config, calls ...mess
 		}
 		sandbox := tool.Sandbox{User: "_the-agent", Home: t.TempDir(), Project: project}
 		return []tool.Tool{tool.BashWriteTool(sandbox, clone, vimtool.Replay(client))}
-	})
-	return harness, provider
+	}
 }
 
 func TestBashWrite_ChangeArrivesInTheBufferSavedAndOneUndoRevertsIt(t *testing.T) {
