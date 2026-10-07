@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
 	neovim "github.com/neovim/go-client/nvim"
+	"github.com/niconiahi/the-agent/clone"
 	"github.com/niconiahi/the-agent/model"
 	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/sender"
@@ -37,6 +37,9 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "setup" {
 		os.Exit(run_setup(os.Args[2:]))
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "sync" {
+		os.Exit(run_sync(os.Args[2:]))
+	}
 	if len(os.Args) != 2 || os.Args[1] != "--nvim" {
 		fmt.Fprint(os.Stderr, USAGE)
 		os.Exit(2)
@@ -45,7 +48,7 @@ func main() {
 	run_nvim()
 }
 
-func default_tools(client *neovim.Nvim, project string) []tool.Tool {
+func default_tools(client *neovim.Nvim, project string, binary string) []tool.Tool {
 	sandbox := tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: project}
 	tools := []tool.Tool{
 		vimtool.Read(client),
@@ -57,18 +60,11 @@ func default_tools(client *neovim.Nvim, project string) []tool.Tool {
 		tool.FindTool(),
 		tool.LsTool(),
 	}
-	if cloner := clone_for(sandbox); cloner != nil {
-		tools = append(tools, tool.BashWriteTool(sandbox, cloner, vimtool.Replay(client)))
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		clone := tool.Clone{Project: project, Binary: binary, Run: sandbox.Command}
+		tools = append(tools, tool.BashWriteTool(sandbox, clone, vimtool.Replay(client)))
 	}
 	return tools
-}
-
-func clone_for(sandbox tool.Sandbox) tool.Cloner {
-	switch runtime.GOOS {
-	case "darwin":
-		return tool.Clonefile(sandbox.Project, filepath.Join(sandbox.Home, "clones"), sandbox.Command)
-	}
-	return nil
 }
 
 func run_nvim() {
@@ -98,7 +94,7 @@ func run_nvim() {
 	if error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
-	config.Tools = default_tools(client, project)
+	config.Tools = default_tools(client, project, binary)
 	if error := nvim.Attach(client, config); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
@@ -131,6 +127,14 @@ func run_setup(arguments []string) int {
 	}
 	if error != nil {
 		fmt.Fprintf(os.Stderr, "the-agent setup: %v\n", error)
+		return 1
+	}
+	return 0
+}
+
+func run_sync(arguments []string) int {
+	if error := clone.Run(arguments); error != nil {
+		fmt.Fprintf(os.Stderr, "the-agent sync: %v\n", error)
 		return 1
 	}
 	return 0

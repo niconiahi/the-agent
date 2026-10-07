@@ -3,10 +3,11 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"sync"
 	"strings"
 	"testing"
 
@@ -25,12 +26,37 @@ func run_locally(invocation_context context.Context, directory string, script st
 	return command
 }
 
+var local_build struct {
+	once   sync.Once
+	binary string
+	error  error
+}
+
+// local_binary builds the-agent once per test run, for its sync subcommand.
+func local_binary(t *testing.T) string {
+	t.Helper()
+	local_build.once.Do(func() {
+		directory, error := os.MkdirTemp("", "the-agent-binary-")
+		if error != nil {
+			local_build.error = error
+			return
+		}
+		local_build.binary = filepath.Join(directory, "the-agent")
+		build := exec.Command("go", "build", "-o", local_build.binary, "./cmd/agent")
+		build.Dir = nvimtest.RepoRoot()
+		if output, error := build.CombinedOutput(); error != nil {
+			local_build.error = fmt.Errorf("go build: %v\n%s", error, output)
+		}
+	})
+	if local_build.error != nil {
+		t.Fatal(local_build.error)
+	}
+	return local_build.binary
+}
+
 func start_with_local_bash_write(t *testing.T, config nvim.Config, calls ...message.ToolCall) (*nvimtest.Harness, *nvimtest.Provider) {
 	t.Helper()
-	if runtime.GOOS != "darwin" {
-		t.Skip("clonefile needs macOS")
-	}
-	clones := t.TempDir()
+	binary := local_binary(t)
 	replies := []nvimtest.Reply{}
 	for _, call := range calls {
 		replies = append(replies, nvimtest.Reply{ToolCalls: []message.ToolCall{call}})
@@ -46,8 +72,12 @@ func start_with_local_bash_write(t *testing.T, config nvim.Config, calls ...mess
 			}
 			project = directory
 		}
-		sandbox := tool.Sandbox{User: "_the-agent", Home: clones, Project: project}
-		return []tool.Tool{tool.BashWriteTool(sandbox, tool.Clonefile(project, clones, run_locally), vimtool.Replay(client))}
+		clone := tool.Clone{Project: project, Binary: binary, Run: run_locally}
+		if error := os.MkdirAll(clone.Path(), 0o700); error != nil {
+			t.Fatal(error)
+		}
+		sandbox := tool.Sandbox{User: "_the-agent", Home: t.TempDir(), Project: project}
+		return []tool.Tool{tool.BashWriteTool(sandbox, clone, vimtool.Replay(client))}
 	})
 	return harness, provider
 }

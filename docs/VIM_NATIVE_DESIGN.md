@@ -179,7 +179,7 @@ One mechanism on every Unix. A bubblewrap overlay was planned for Linux and drop
 
 Measured on an M1 Max: cloning costs about 10 µs per file and the listing about as much again. With the persistent clone, later syncs cost one stat walk plus the changed files. On ext4 the first sync is a full copy.
 
-As first built on macOS (`tool/clonefile.go`, see `docs/tool.md`), before the sync: a fresh `cp -c -R` clone per call in `~_the-agent/clones/<name>-<hash of the project path>`, every step run as `_the-agent` with results streamed back over stdout, diffed by its listing before and after the command (inode, size, mtime, mode) so that whatever I save in the project meanwhile is left alone. Symbolic links and binary files are reported to the model, not applied. #27 replaces the fresh clone with the sync above.
+As built (`clone/` and `tool/clone.go`, see `docs/clone.md` and `docs/tool.md`): `bash_write` holds a lock per project, and every step runs as `_the-agent` with its results streamed back over stdout, so my process never reads the clone itself. The listing before and after the command covers inode, size, nanosecond mtime and mode. Symbolic links and binary files are reported to the model, not applied, and the next sync removes them from the clone. On Linux the sync keeps every clone folder's group bits, which are its ACL mask, at `rwx`; files keep the source's mode, which is safe because deleting a file only needs rights on its folder.
 
 ## Streaming
 
