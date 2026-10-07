@@ -432,3 +432,15 @@ A root session's agent can delegate with `task`: a fresh explorer agent runs the
 ### Integration tests
 
 - `integration/delegate_to_explorer_test.go` - a `task` call writes the numbered child file with the link and the job, the child's tool traffic stays in its file and the parent receives only the report; children are numbered in creation order; the explorer gets only reading tools and the root gets `task`; `gf` on the link opens the child; `:TAAbort` on the parent aborts and unlocks the child
+
+## Milestone: Stale edits rejected
+
+An agent never edits from a stale view. `edit` compares the buffer's `changedtick` with the one the calling agent recorded on its last `read` or change, and when someone else changed the buffer since, me or another agent, it fails with `file changed since you read it, re-read first` and changes nothing. The agent's own edits don't make its view stale.
+
+### Lua plugin
+
+- `buffer.lua` - `edit` runs the staleness check against `b:the_agent_ticks` before getting the buffer ready
+
+### Integration tests
+
+- `integration/reject_stale_edits_test.go` - typing after the agent's `read` rejects its `edit`; another session's edit after the agent's `read` rejects it; consecutive edits after one `read` succeed; re-reading clears the rejection

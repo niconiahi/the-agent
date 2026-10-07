@@ -69,6 +69,24 @@ local function record(buffer, agent)
   vim.b[buffer].the_agent_ticks = ticks
 end
 
+local STALE = "file changed since you read it, re-read first"
+
+-- Whether someone else, the user or another agent, changed the buffer
+-- since the agent last read or changed it. A buffer the agent has no tick
+-- for counts as never seen, so it is not stale. A clean buffer is
+-- refreshed first, so a change made on disk underneath counts too.
+local function stale(buffer, agent)
+  if agent == nil or agent == "" then
+    return false
+  end
+  local seen = (vim.b[buffer].the_agent_ticks or {})[agent]
+  if seen == nil then
+    return false
+  end
+  refresh(buffer)
+  return vim.api.nvim_buf_get_changedtick(buffer) ~= seen
+end
+
 -- The loaded buffer for path, loading the file without showing it; nil when
 -- the file is neither loaded nor readable.
 function M.open(path)
@@ -296,6 +314,9 @@ function M.edit(path, old_text, new_text, agent, stamp)
   path = resolve(path)
   if not find(path) and vim.fn.filereadable(path) == 0 then
     return missing(path)
+  end
+  if find(path) and stale(find(path), agent) then
+    return { error = STALE }
   end
   local buffer, failure = prepare(path, agent, stamp)
   if not buffer then
