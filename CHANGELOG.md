@@ -433,6 +433,35 @@ A root session's agent can delegate with `task`: a fresh explorer agent runs the
 
 - `integration/delegate_to_explorer_test.go` - a `task` call writes the numbered child file with the link and the job, the child's tool traffic stays in its file and the parent receives only the report; children are numbered in creation order; the explorer gets only reading tools and the root gets `task`; `gf` on the link opens the child; `:TAAbort` on the parent aborts and unlocks the child
 
+## Milestone: worker subagents, depth limit, parallel tasks and amendments
+
+Delegation is complete. A `worker` subagent also gets `edit`, `write`, `filter` and `bash_write`; an `explorer` still only reads. Subagents get `task` too while they are below a depth limit (3 by default), so an agent at the limit has no `task`. A turn's tool calls run in parallel, so several `task` calls in one turn run their children at the same time. `:TASend` in a child's `session.md` continues it with the tools of its role, and when that turn ends the child's new final answer replaces its report in the direct parent's `tool_result`, marked `amended=<ts>`; a parent whose result was deleted is left unchanged.
+
+### Package: `subagent`
+
+- `ROLE_WORKER = "worker"` and the `role` enum `explorer`, `worker`; `role` still defaults to `explorer`
+- `DEFAULT_MAX_DEPTH = 3` and `Config.MaxDepth`
+- `Config.ToolsFor(directory string) []tool.Tool` - the tools of the session in directory: every tool for a root session, its role's tools for a subagent (read back from the parent's `task` call; an explorer when the call is gone), and `task` below the depth limit
+- `Depth(directory string) int` - how many ancestor folders hold a `session.md`
+- `Report(messages []message.Message) string` - an agent's final answer (was the unexported `report`)
+- Children run their tool calls in parallel
+
+### Package: `session`
+
+- `LinkedCall(text string, link string) (message.ToolCall, bool)` - the call whose result follows a child's link
+- `Amend(text string, link string, report string, at time.Time) (string, bool)` - replaces the result that follows a child's link with `tool_result id=<id> amended=<ts>`
+
+### Package: `nvim`
+
+- Every send gets its tools from `subagent.Config.ToolsFor`, so a continued child keeps its role and depth, and runs its tool calls in parallel
+- After a child's turn ends without error or abort, its report amends the parent's result: in the parent's buffer (saved) when loaded, on disk otherwise; a running parent is not amended and the user is notified
+- `Config.MaxDepth` - passed to `subagent.Config`
+
+### Integration tests
+
+- `integration/delegate_to_worker_test.go` - a worker gets the editing tools; an agent at depth 3, or at a configured limit, gets no `task`; two `task` calls in one turn run concurrently and both reports return
+- `integration/continue_a_subagent_test.go` - continuing a child amends the parent's result on disk and in its buffer and keeps the child's role tools (explorer and worker); continuing a child whose result was deleted leaves the parent unchanged
+
 ## Milestone: Stale edits rejected
 
 An agent never edits from a stale view. `edit` compares the buffer's `changedtick` with the one the calling agent recorded on its last `read` or change, and when someone else changed the buffer since, me or another agent, it fails with `file changed since you read it, re-read first` and changes nothing. The agent's own edits don't make its view stale.

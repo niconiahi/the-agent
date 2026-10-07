@@ -149,7 +149,7 @@ func TestTask_ExplorerGetsOnlyReadingTools(t *testing.T) {
 		names = append(names, schema.Name)
 	}
 	slices.Sort(names)
-	if want := []string{"bash_read", "find", "grep", "ls", "read"}; !slices.Equal(names, want) {
+	if want := []string{"bash_read", "find", "grep", "ls", "read", "task"}; !slices.Equal(names, want) {
 		t.Fatalf("explorer tools: got %v, want %v", names, want)
 	}
 	if !slices.ContainsFunc(request_of(provider, "go")[0].Tools, func(schema sender.ToolSchema) bool { return schema.Name == "task" }) {
