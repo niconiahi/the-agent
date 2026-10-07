@@ -52,6 +52,33 @@ func TestTASend_DeletedToolResultRemovesItsCallFromRequestAndFile(t *testing.T) 
 	}
 }
 
+func TestTASend_TwoOrphansAreRemovedAndOneUndoBringsBothBack(t *testing.T) {
+	nvimtest.RegisterProvider(t, nvimtest.Text("you're welcome", 10))
+	config := nvimtest.Config()
+	config.Now = fixed_clock("2026-10-06T14:33:00Z")
+	harness := nvimtest.Start(t, config)
+	stale_result := "```tool_result id=tc_9 ts=2026-10-06T14:32:00Z\nstale\n```\n\n"
+	session := strings.Replace(TOOL_TURN, TOOL_RESULT_BLOCK, "", 1)
+	session = strings.Replace(session, "it says hello\n\n", "it says hello\n\n"+stale_result, 1)
+	harness.WriteFile(SESSION, session+"thanks\n")
+
+	harness.Command("TA foo")
+	harness.Command("TASend")
+	harness.WaitFor("the repaired reply on disk", func() bool {
+		disk := on_disk(harness)
+		return strings.Contains(disk, "you're welcome") && !strings.Contains(disk, "tool_")
+	})
+
+	harness.Command("normal! u")
+	got := harness.Text()
+	if !strings.Contains(got, TOOL_CALL_BLOCK) || !strings.Contains(got, stale_result) {
+		t.Fatalf("one u must bring back both orphans, got:\n%s", got)
+	}
+	if !strings.Contains(got, "you're welcome") {
+		t.Fatalf("one u must only undo the repair, but the reply is gone:\n%s", got)
+	}
+}
+
 func TestTASend_DeletedToolCallRemovesItsResultAndUndoBringsItBack(t *testing.T) {
 	provider := nvimtest.RegisterProvider(t, nvimtest.Reply{
 		Deltas:      []string{"you're ", "very ", "welcome"},
