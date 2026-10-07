@@ -24,7 +24,8 @@ type Config struct {
 	Tools         []tool.Tool
 	StreamOptions *sender.StreamOptions
 
-	Ready func() error
+	Ready   func() error
+	Sandbox func(project string) error
 
 	Now func() time.Time
 }
@@ -90,6 +91,12 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 
 	project := current.config.Project
 	path := SessionPath(project, name)
+
+	if current.config.Sandbox != nil {
+		if error := current.config.Sandbox(project); error != nil {
+			return error
+		}
+	}
 
 	if error := current.seed_system_prompt(project); error != nil {
 		return error

@@ -1,13 +1,30 @@
 package integration_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
+	"github.com/niconiahi/the-agent/setup"
 )
+
+func TestTA_InAProjectThatIsNotSetUpSaysSoAndCreatesNoSession(t *testing.T) {
+	config := nvimtest.Config()
+	config.Sandbox = setup.Ready
+	harness := nvimtest.Start(t, config)
+
+	error := harness.CommandError("TA foo")
+
+	if error == nil || !strings.Contains(error.Error(), "sudo the-agent setup") {
+		t.Fatalf("want :TA to tell me to run sudo the-agent setup, got %v", error)
+	}
+	if _, error := os.Stat(filepath.Join(harness.Dir, ".the-agent")); !errors.Is(error, os.ErrNotExist) {
+		t.Fatalf("a project that is not set up must get no .the-agent folder: %v", error)
+	}
+}
 
 func TestTA_CreatesSessionFileAndOpensIt(t *testing.T) {
 	config := nvimtest.Config()

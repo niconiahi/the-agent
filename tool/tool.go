@@ -8,6 +8,8 @@ import (
 	"github.com/niconiahi/the-agent/sender"
 )
 
+const MAX_OUTPUT_BYTES = 100_000
+
 type ToolResult struct {
 	Content []message.Content
 	Details interface{}

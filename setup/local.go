@@ -46,3 +46,23 @@ func (exec_shell) Run(command Command) (string, error) {
 	output, error := process.CombinedOutput()
 	return string(output), error
 }
+
+func Home() string {
+	target, error := platform_for(runtime.GOOS)
+	if error != nil {
+		return ""
+	}
+	return target.home()
+}
+
+func Ready(project string) error {
+	target, error := platform_for(runtime.GOOS)
+	if error != nil {
+		return error
+	}
+	output, error := exec.Command("sudo", "-n", "-u", USER, "ls", project).CombinedOutput()
+	if error != nil {
+		return target.diagnose(project, string(output))
+	}
+	return nil
+}

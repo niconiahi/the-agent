@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
@@ -61,8 +62,7 @@ func TestLazySpec_BuildsTheBinaryAndLoadsOnCommands(t *testing.T) {
 	if error := harness.Nvim.ExecLua(`require("the-agent").setup(dofile(...).opts)`, nil, filepath.Join(root, "extras", "lazy.lua")); error != nil {
 		t.Fatal(error)
 	}
-	harness.Command("TA foo")
-	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); !new_session(got) {
-		t.Fatalf("session not created by the built binary: %q", got)
+	if error := harness.CommandError("TA foo"); error == nil || !strings.Contains(error.Error(), "sudo the-agent setup") {
+		t.Fatalf("the built binary must answer :TA, here with the setup message for a project _the-agent cannot read, got %v", error)
 	}
 }

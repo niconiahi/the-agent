@@ -19,7 +19,7 @@ import (
 	_ "github.com/niconiahi/the-agent/sender"
 )
 
-const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run bash commands. You can search for files and their contents. Help the user with their coding tasks.`
+const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run shell commands with bash_read, which runs them as a user that can read the project but not write it. You can search for files and their contents. Help the user with their coding tasks.`
 
 const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
 
@@ -43,10 +43,10 @@ func main() {
 	run_nvim()
 }
 
-func default_tools(client *neovim.Nvim) []tool.Tool {
+func default_tools(client *neovim.Nvim, project string) []tool.Tool {
 	return []tool.Tool{
 		vimtool.Read(client),
-		tool.BashTool(),
+		tool.BashReadTool(tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: project}),
 		vimtool.Edit(client),
 		vimtool.Write(client),
 		vimtool.Filter(client),
@@ -61,7 +61,10 @@ func run_nvim() {
 
 	target := model.KimiK25()
 	api_key := os.Getenv("KIMI_API_KEY")
+	project := working_directory()
 	config := nvim.Config{
+		Project:       project,
+		Sandbox:       setup.Ready,
 		Model:         &target,
 		SystemPrompt:  SYSTEM_PROMPT,
 		StreamOptions: &sender.StreamOptions{APIKey: api_key},
@@ -77,7 +80,7 @@ func run_nvim() {
 	if error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
-	config.Tools = default_tools(client)
+	config.Tools = default_tools(client, project)
 	if error := nvim.Attach(client, config); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
@@ -85,6 +88,14 @@ func run_nvim() {
 	if error := client.Serve(); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
+}
+
+func working_directory() string {
+	directory, error := os.Getwd()
+	if error != nil {
+		log.Fatalf("the-agent: %v", error)
+	}
+	return directory
 }
 
 func run_setup(arguments []string) int {
