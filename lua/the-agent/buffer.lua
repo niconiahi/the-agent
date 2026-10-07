@@ -117,14 +117,45 @@ local function missing(path)
   return { error = "failed to read file: " .. path .. ": no such file" }
 end
 
+-- Writes the user's unsaved version of buffer to
+-- <session>/unsaved/<path relative to the cwd>.<stamp> and returns that path.
+local function set_aside(buffer, path, agent, stamp)
+  local relative = vim.fn.fnamemodify(path, ":."):gsub("^/+", "")
+  local sidecar = agent .. "/unsaved/" .. relative .. "." .. stamp
+  vim.fn.mkdir(vim.fn.fnamemodify(sidecar, ":h"), "p")
+  local file, message = io.open(sidecar, "wb")
+  if not file then
+    return nil, "failed to save your unsaved changes: " .. message
+  end
+  file:write(content(buffer))
+  file:close()
+  return sidecar
+end
+
 -- Gets the buffer for path ready for an agent change: the loaded buffer or
--- a newly loaded one, holding what is on disk.
-local function prepare(path)
+-- a newly loaded one, holding what is on disk. Unsaved changes of the user
+-- go to a sidecar under the agent's session first, and the user is told
+-- where; the buffer is then reloaded so the change never mixes with them.
+local function prepare(path, agent, stamp)
   local buffer = find(path) or load(path)
-  if vim.bo[buffer].modified then
+  if not vim.bo[buffer].modified then
+    refresh(buffer)
+    return buffer
+  end
+  if agent == nil or agent == "" then
     return nil, "the file has unsaved changes in the editor"
   end
-  refresh(buffer)
+  local sidecar, failure = set_aside(buffer, path, agent, stamp)
+  if not sidecar then
+    return nil, failure
+  end
+  vim.api.nvim_buf_call(buffer, function()
+    vim.cmd("silent edit!")
+  end)
+  require("the-agent").notify(
+    "your unsaved changes to " .. vim.fn.fnamemodify(path, ":.") .. " were saved to " .. sidecar,
+    vim.log.levels.WARN
+  )
   return buffer
 end
 
@@ -145,7 +176,7 @@ end
 
 -- Replaces the one occurrence of old_text, marks the new text with an
 -- extmark and saves.
-function M.edit(path, old_text, new_text, agent)
+function M.edit(path, old_text, new_text, agent, stamp)
   if old_text == "" then
     return { error = "old_text must not be empty" }
   end
@@ -153,7 +184,7 @@ function M.edit(path, old_text, new_text, agent)
   if not find(path) and vim.fn.filereadable(path) == 0 then
     return missing(path)
   end
-  local buffer, failure = prepare(path)
+  local buffer, failure = prepare(path, agent, stamp)
   if not buffer then
     return { error = failure }
   end
@@ -184,10 +215,10 @@ end
 
 -- Sets the buffer's whole content, creating the file (and its directory)
 -- when it does not exist yet.
-function M.write(path, text, agent)
+function M.write(path, text, agent, stamp)
   path = resolve(path)
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
-  local buffer, failure = prepare(path)
+  local buffer, failure = prepare(path, agent, stamp)
   if not buffer then
     return { error = failure }
   end
@@ -203,12 +234,12 @@ end
 
 -- Runs command over the whole buffer like :%!command. A command that fails
 -- is undone at once, so it leaves neither text nor an undo step behind.
-function M.filter(path, command, agent)
+function M.filter(path, command, agent, stamp)
   path = resolve(path)
   if not find(path) and vim.fn.filereadable(path) == 0 then
     return missing(path)
   end
-  local buffer, failure = prepare(path)
+  local buffer, failure = prepare(path, agent, stamp)
   if not buffer then
     return { error = failure }
   end

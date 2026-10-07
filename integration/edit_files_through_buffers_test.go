@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
@@ -73,23 +74,46 @@ func TestEdit_UnmatchedOrRepeatedOldTextIsAToolErrorAndChangesNothing(t *testing
 	}
 }
 
-func TestEdit_LeavesABufferWithMyUnsavedChangesAlone(t *testing.T) {
-	harness, provider := start_with_vimtool(t, call("tc_1", "edit", map[string]any{"path": "a.txt", "old_text": "one", "new_text": "ONE"}))
+func record_notifications(harness *nvimtest.Harness) func() []string {
+	harness.T.Helper()
+	harness.Command(`lua _G.notes = {}; vim.notify = function(message) table.insert(_G.notes, message) end`)
+	return func() []string {
+		var notes []string
+		if error := harness.Nvim.ExecLua(`return _G.notes`, &notes); error != nil {
+			harness.T.Fatal(error)
+		}
+		return notes
+	}
+}
+
+func TestEdit_SetsMyUnsavedChangesAsideInASidecarThenEditsTheDiskVersion(t *testing.T) {
+	config := nvimtest.Config()
+	config.Now = fixed_clock("2026-10-06T14:32:00Z")
+	harness, provider := start_with_vimtool_config(t, config, call("tc_1", "edit", map[string]any{"path": "a.txt", "old_text": "one", "new_text": "ONE"}))
 	path := filepath.Join(harness.Dir, "a.txt")
 	harness.WriteFile("a.txt", "one\n")
 	harness.Command("edit " + path)
-	harness.SetText("one mine\n")
+	harness.SetText("one mine\nand more")
+	notifications := record_notifications(harness)
 
 	send_agent_turn(harness)
 
-	if results := tool_results(t, provider); !results[0].IsError {
+	if results := tool_results(t, provider); results[0].IsError {
 		t.Fatalf("edit result: %#v", results[0])
 	}
-	if got := buffer_lines(harness, path); got != "one mine\n" {
+	sidecar := ".the-agent/sessions/foo/unsaved/a.txt.2026-10-06T14:32:00Z"
+	if got := harness.ReadFile(sidecar); got != "one mine\nand more\n" {
+		t.Fatalf("sidecar: %q", got)
+	}
+	if got := buffer_lines(harness, path); got != "ONE\n" {
 		t.Fatalf("buffer: %q", got)
 	}
-	if got := harness.ReadFile("a.txt"); got != "one\n" {
+	if got := harness.ReadFile("a.txt"); got != "ONE\n" {
 		t.Fatalf("disk: %q", got)
+	}
+	notes := notifications()
+	if len(notes) != 1 || !strings.Contains(notes[0], filepath.Join(harness.Dir, sidecar)) {
+		t.Fatalf("notifications: %q", notes)
 	}
 }
 
