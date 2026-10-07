@@ -76,9 +76,19 @@ func call_buffer_function(client *neovim.Nvim, function string, arguments ...any
 	return result, nil
 }
 
-func change_buffer(client *neovim.Nvim, invocation_context context.Context, diagnostics_wait time.Duration, function string, arguments ...any) ([]diagnostic, error) {
-	changed, error := call_buffer_function(client, function, append(arguments, SessionDirectory(invocation_context), sidecar_timestamp(invocation_context))...)
+// change_buffer takes the calling agent's lease on path, then calls the
+// Lua function that changes the buffer, saves it and locks it under the
+// lease in one request, and closes the changed region.
+func change_buffer(client *neovim.Nvim, invocation_context context.Context, diagnostics_wait time.Duration, function string, path string, arguments ...any) ([]diagnostic, error) {
+	agent := SessionDirectory(invocation_context)
+	give_back, error := lease(client, agent, path)
 	if error != nil {
+		return nil, error
+	}
+	arguments = append(append([]any{path}, arguments...), agent, sidecar_timestamp(invocation_context), agent != "")
+	changed, error := call_buffer_function(client, function, arguments...)
+	if error != nil {
+		give_back()
 		return nil, error
 	}
 	closed, error := call_buffer_function(client, "close_region", changed.Region, diagnostics_wait.Milliseconds())

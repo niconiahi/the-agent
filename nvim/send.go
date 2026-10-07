@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	neovim "github.com/neovim/go-client/nvim"
@@ -46,6 +47,12 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	if running == nil {
 		return errors.New("a turn is already running in this session")
 	}
+	// A running session holds its own session.md's lease, so no agent can
+	// change it; one an agent holds is not sent until that agent ends.
+	if error := vimtool.Lease(client, prepared.directory, filepath.Join(prepared.directory, "session.md")); error != nil {
+		current.finish(buffer)
+		return error
+	}
 
 	stamped := parsed.Render()
 	parsed.Repair()
@@ -54,7 +61,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	output, error := start_stream(client, handle, text, stamped)
 	if error != nil {
 		current.finish(buffer)
-		return error
+		return errors.Join(error, vimtool.Release(client, prepared.directory))
 	}
 	go func() {
 		defer current.finish(buffer)
@@ -65,7 +72,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 			error = nil
 		}
 		succeeded := error == nil && !aborted
-		error = errors.Join(error, writer.finish())
+		error = errors.Join(error, vimtool.Release(client, prepared.directory), writer.finish())
 		if repair_error := repair_buffer(client, handle, stamped, repaired); repair_error != nil {
 			error = errors.Join(error, repair_error)
 		}
