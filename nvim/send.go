@@ -45,7 +45,8 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
 	}
 
-	if !current.start(buffer) {
+	running := current.start(buffer)
+	if running == nil {
 		return errors.New("a turn is already running in this session")
 	}
 
@@ -63,7 +64,11 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	go func() {
 		defer current.finish(buffer)
 		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
-		error := current.run(messages[:len(messages)-1], last, replies.handle)
+		error := current.run(running.context, messages[:len(messages)-1], last, replies.handle)
+		if running.context.Err() != nil {
+			// Aborted with :TAAbort: what streamed so far stays, no error.
+			error = nil
+		}
 
 		if replies.wrote {
 			output.begin("## user\n")
@@ -79,8 +84,8 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 }
 
 // run sends history plus last to the model, passing every agent event to
-// listener, and returns when the turn chain ends.
-func (current *frontend) run(history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
+// listener, and returns when the turn chain ends or ctx is cancelled.
+func (current *frontend) run(ctx context.Context, history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
@@ -94,23 +99,7 @@ func (current *frontend) run(history []message.Message, last message.UserMessage
 	)
 
 	agent.Subscribe(listener)
-	return agent.Prompt(context.Background(), last)
-}
-
-func (current *frontend) start(buffer int) bool {
-	current.mutex.Lock()
-	defer current.mutex.Unlock()
-	if current.running[buffer] {
-		return false
-	}
-	current.running[buffer] = true
-	return true
-}
-
-func (current *frontend) finish(buffer int) {
-	current.mutex.Lock()
-	defer current.mutex.Unlock()
-	delete(current.running, buffer)
+	return agent.Prompt(ctx, last)
 }
 
 // buffer_text is the buffer as it would be written to disk.

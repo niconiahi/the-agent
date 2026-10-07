@@ -80,7 +80,7 @@ func TestTASend_LocksTheSessionDuringTheTurn(t *testing.T) {
 	harness.Command("normal! gg")
 	harness.Command("normal! G")
 
-	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(on_disk(harness), "## user\n\n") })
+	wait_turn_end(harness, "two")
 	harness.WaitFor("the session to unlock", func() bool { return modifiable(harness) })
 }
 
@@ -97,7 +97,7 @@ func TestTASend_FollowsTheStreamWhenTheCursorIsAtTheBottom(t *testing.T) {
 	if line, last := eval_int(harness, `line(".")`), eval_int(harness, `line("$")`); line != last {
 		t.Fatalf("mid-stream the cursor is on line %d of %d", line, last)
 	}
-	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(on_disk(harness), "## user\n\n") })
+	wait_turn_end(harness, "three")
 	if line, last := eval_int(harness, `line(".")`), eval_int(harness, `line("$")`); line != last {
 		t.Fatalf("after the turn the cursor is on line %d of %d", line, last)
 	}
@@ -112,13 +112,22 @@ func TestTASend_LeavesTheViewAloneWhenTheCursorIsElsewhere(t *testing.T) {
 	harness.Command("normal! gg")
 	harness.Command("TASend")
 
-	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(on_disk(harness), "## user\n\n") })
+	wait_turn_end(harness, "three")
 	if line := eval_int(harness, `line(".")`); line != 1 {
 		t.Fatalf("the cursor moved to line %d", line)
 	}
 	if top := eval_int(harness, `line("w0")`); top != 1 {
 		t.Fatalf("the view scrolled to line %d", top)
 	}
+}
+
+// wait_turn_end waits until the reply's last word is saved after a fresh
+// "## user" heading and the buffer is unlocked.
+func wait_turn_end(harness *nvimtest.Harness, last_word string) {
+	harness.T.Helper()
+	harness.WaitFor("the turn to end", func() bool {
+		return modifiable(harness) && strings.HasSuffix(on_disk(harness), last_word+"\n\n## user\n\n")
+	})
 }
 
 // on_disk is the session file, or "" while :write has it renamed away
@@ -153,4 +162,49 @@ func changedtick(harness *nvimtest.Harness) int {
 		harness.T.Fatal(error)
 	}
 	return tick
+}
+
+func TestTAAbort_StopsTheTurnKeepsTheTextAndUnlocks(t *testing.T) {
+	provider := nvimtest.RegisterProvider(t, slow(1, 300*time.Millisecond, "kept ", "lost"))
+	config := nvimtest.Config()
+	config.Now = fixed_clock("2026-10-06T14:32:00Z")
+	harness := nvimtest.Start(t, config)
+
+	harness.Command("TA foo")
+	harness.SetText("## user\n\nhello\n")
+	harness.Command("TASend")
+	harness.WaitFor("partial text", func() bool { return strings.Contains(harness.Text(), "kept") })
+	harness.Command("TAAbort")
+
+	if !modifiable(harness) {
+		t.Fatal("the session is still locked after :TAAbort")
+	}
+	want := "## user · 2026-10-06T14:32:00Z\n\nhello\n\n" +
+		"## assistant · fake-model · 2026-10-06T14:32:00Z · aborted\n\nkept\n\n" +
+		"## user\n\n"
+	if got := harness.Text(); got != want {
+		t.Fatalf("buffer\nwant %q\ngot  %q", want, got)
+	}
+	if got := on_disk(harness); got != want {
+		t.Fatalf("disk\nwant %q\ngot  %q", want, got)
+	}
+
+	// The session can be continued.
+	harness.SetText(want + "go on\n")
+	if error := harness.CommandError("TASend"); error != nil {
+		t.Fatalf("send after abort: %v", error)
+	}
+	harness.WaitFor("the second request", func() bool { return len(provider.Requests()) == 2 })
+}
+
+func TestTAAbort_RefusesWhenNoTurnIsRunning(t *testing.T) {
+	nvimtest.RegisterProvider(t)
+	harness := nvimtest.Start(t, nvimtest.Config())
+
+	harness.Command("TA foo")
+	error := harness.CommandError("TAAbort")
+
+	if error == nil || !strings.Contains(error.Error(), "no turn is running") {
+		t.Fatalf("want a 'no turn is running' error, got %v", error)
+	}
 }

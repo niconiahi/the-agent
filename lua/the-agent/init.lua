@@ -50,4 +50,8 @@ function M.send()
   vim.rpcrequest(channel(), "the_agent_send", vim.api.nvim_get_current_buf())
 end
 
+function M.abort()
+  vim.rpcrequest(channel(), "the_agent_abort", vim.api.nvim_get_current_buf())
+end
+
 return M

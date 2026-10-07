@@ -10,3 +10,7 @@ end, { nargs = 1, desc = "the-agent: create or open a session" })
 vim.api.nvim_create_user_command("TASend", function()
   require("the-agent").send()
 end, { nargs = 0, desc = "the-agent: send the current session" })
+
+vim.api.nvim_create_user_command("TAAbort", function()
+  require("the-agent").abort()
+end, { nargs = 0, desc = "the-agent: abort the current session's turn" })
