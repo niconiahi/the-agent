@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -179,5 +180,73 @@ func TestFollowWindow_SwitchingToAnotherSessionsFileRetargetsIt(t *testing.T) {
 	wait_for_session_end(harness, "one", "alpha done")
 	if current_window(harness) != window || current_buffer(harness) != buffer {
 		t.Fatal("the current window moved")
+	}
+}
+
+func enter_file(harness *nvimtest.Harness, command string, path string) {
+	harness.T.Helper()
+	var escaped string
+	if error := harness.Nvim.Call("fnameescape", &escaped, path); error != nil {
+		harness.T.Fatal(error)
+	}
+	harness.Command(command + " " + escaped)
+}
+
+func TestFollowWindow_EnteringASubagentsFileKeepsFollowingItsRootSession(t *testing.T) {
+	edit := gated_edit("e1", "a.txt", "two", "TWO")
+	provider := nvimtest.RegisterProvider(t,
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"job": JOB})}},
+		edit,
+		nvimtest.Text("done", 10),
+	)
+	provider.Script(JOB, nvimtest.Text("found", 7))
+	harness := nvimtest.StartWithTools(t, nvimtest.Config(), vimtool_tools)
+	harness.WriteFile("a.txt", "one\ntwo\nthree\n")
+	notifications := record_notifications(harness)
+	a_path := filepath.Join(harness.Dir, "a.txt")
+
+	send_in(harness, "foo", "go")
+	child := child_session(harness, "01-map-callers-of-foo")
+	harness.WaitFor("the child to end", func() bool {
+		contents, _ := os.ReadFile(child)
+		return strings.HasSuffix(string(contents), "\nfound\n\n## user\n\n")
+	})
+	enter_file(harness, "edit", child)
+
+	edit.Gate.Step(t) // path
+	harness.WaitFor("the follow window to show the parent's file", func() bool { return follow_window_file(harness) == a_path })
+	edit.Gate.Step(t) // old_text, new_text
+	harness.WaitFor("the parent's region to be highlighted", func() bool {
+		return slices.Equal(preview_of(harness, a_path).Region, []int{1, 0, 1, 3})
+	})
+	edit.Gate.Step(t) // ToolCallEnd
+	wait_for_session_end(harness, "foo", "done")
+	if got := notifications(); len(got) != 0 {
+		t.Fatalf("the parent of the session I am in should be followed, not notified: %q", got)
+	}
+}
+
+func TestFollowWindow_SendingFromASessionFollowsIt(t *testing.T) {
+	edit := gated_edit("e1", "a.txt", "two", "TWO")
+	provider := nvimtest.RegisterProvider(t)
+	provider.Script("alpha", edit, nvimtest.Text("alpha done", 5))
+	harness := nvimtest.StartWithTools(t, nvimtest.Config(), vimtool_tools)
+	harness.WriteFile("a.txt", "one\ntwo\nthree\n")
+	notifications := record_notifications(harness)
+	a_path := filepath.Join(harness.Dir, "a.txt")
+	harness.Command("TA two")
+	harness.Command("TA one")
+
+	enter_file(harness, "noautocmd edit", nvim.SessionPath(harness.Dir, "two"))
+	harness.SetText("## user\n\nalpha\n")
+	harness.Command("TASend")
+
+	edit.Gate.Step(t) // path
+	harness.WaitFor("the follow window to show the sent session's file", func() bool { return follow_window_file(harness) == a_path })
+	edit.Gate.Step(t) // old_text, new_text
+	edit.Gate.Step(t) // ToolCallEnd
+	wait_for_session_end(harness, "two", "alpha done")
+	if got := notifications(); len(got) != 0 {
+		t.Fatalf("the session I sent from should be followed, not notified: %q", got)
 	}
 }

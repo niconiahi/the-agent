@@ -152,6 +152,7 @@ function M.prompt()
 end
 
 function M.send()
+  require("the-agent.follow").enter(vim.api.nvim_get_current_buf())
   vim.rpcrequest(channel(), "the_agent_send", vim.api.nvim_get_current_buf())
 end
 

@@ -4,19 +4,27 @@
 -- aborted. The preview is only extmarks: it never changes a buffer's text.
 local M = {}
 
--- The directory of the session I was last in. The follow window follows its
--- agent and that agent's subagents, whose sessions live below it; edits by
--- any other agent only notify. nil until I enter a session: follow everyone.
+-- The root session directory (sessions/<name>) of the session I was last in
+-- or last sent from. The follow window follows that root agent and all its
+-- subagents, whose sessions live below it; edits by any other agent only
+-- notify. nil until I enter or send a session: then every edit only notifies.
 local followed = nil
 
--- Called whenever I enter a session (or subagent session) file.
+-- The root session directory a session (or subagent session) file belongs
+-- to; nil for any other file.
+local function root(path)
+  return path:match("^(.*/%.the%-agent/sessions/[^/]+)/")
+end
+
+-- Called whenever I enter a session (or subagent session) file, and when I
+-- send one.
 function M.enter(buffer)
-  followed = vim.fs.dirname(vim.api.nvim_buf_get_name(buffer))
+  followed = root(vim.api.nvim_buf_get_name(buffer)) or followed
 end
 
 -- An agent's ID is its session directory.
 local function follows(agent)
-  return followed == nil or agent == followed or vim.startswith(agent, followed .. "/")
+  return followed ~= nil and (agent == followed or vim.startswith(agent, followed .. "/"))
 end
 
 -- The session's name as :TA knows it: its path under the sessions folder.
