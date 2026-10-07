@@ -139,7 +139,7 @@ A shell command would rewrite files on disk behind the buffers, the leases and y
 exec.CommandContext(ctx, "sudo", "-n", "-u", "_the-agent", "bash", "-c", command)
 ```
 
-`-n` makes sudo fail immediately instead of hanging on an invisible password prompt. Ordinary Unix permissions do the sandboxing — no VM, no sandbox profile, nothing external, identical on macOS and Linux. `_the-agent` can read the project, and write only to its own `GOCACHE`, `GOMODCACHE`, `TMPDIR` and clones under its home. It has no password, its shell is `/usr/bin/false`, and it has no sudoers entry: the agent never gets sudo — your binary uses it once per command to step *down*. It does still have network access.
+`-n` makes sudo fail immediately instead of hanging on an invisible password prompt. Ordinary Unix permissions do the sandboxing — no VM, no sandbox profile, nothing external, identical on macOS and Linux. `_the-agent` can read the project, and write only to its own `GOCACHE` and `GOMODCACHE` under its home and to two folders setup gives it inside the project: `.the-agent/tmp` (its `TMPDIR`) and `.the-agent/clone` (its copy of the project). It has no password, its shell is `/usr/bin/false`, and it has no sudoers entry: the agent never gets sudo — your binary uses it once per command to step *down*. It does still have network access.
 
 ### Setup
 
@@ -149,13 +149,16 @@ The first `:TA` in a project that isn't set up says so and stops:
 $ sudo the-agent setup
 ✓ user _the-agent            (created | exists)
 ✓ /etc/sudoers.d/the-agent   (written, visudo -c ok | exists)
-✓ caches ~_the-agent/{gocache,gomodcache,tmp,clones}
+✓ caches ~_the-agent/{gocache,gomodcache}
 ✓ ACL read on ~/Documents/repos/the-agent (inherit)
+✓ ~/Documents/repos/the-agent/.the-agent/{clone,tmp} owned by _the-agent, full control for niconiahi
 ✓ search on ~, ~/Documents, ~/Documents/repos
-✓ check: sudo -u _the-agent ls .   → ready
+✓ search on the folders holding ~/go/bin/the-agent
+✓ check: sudo -n -u _the-agent ls / test -x <binary> / test -w .the-agent/clone, .the-agent/tmp
+ready
 ```
 
-It runs once per project and is idempotent: on the first project it creates the user, the sudoers entry (`niconiahi ALL=(_the-agent) NOPASSWD: ALL`, validated with `visudo -cf` before it is installed) and the caches; after that it only grants read on the new project, with inheritable ACLs (`chmod +a` on macOS, `setfacl` on Linux) plus search-only on its parent folders. It refuses `/`, `~` and non-directories, prints every command with `--dry-run`, re-checks access with `--check` — macOS TCC can block another user from `~/Documents` even with correct ACLs, and the check says what to allow in System Settings — and undoes itself with `--uninstall` (one project) or `--uninstall --all`.
+It runs once per project and is idempotent: on the first project it creates the user, the sudoers entry (`niconiahi ALL=(_the-agent) NOPASSWD: ALL`, validated with `visudo -cf` before it is installed) and the caches; after that it grants read on the new project, with inheritable ACLs (`chmod +a` on macOS, `setfacl` on Linux), plus search-only on its parent folders and on the folders holding the-agent's binary (so `_the-agent` can run it), and creates `.the-agent/clone` and `.the-agent/tmp` owned by `_the-agent` with an inheritable full-control ACL for me, so I can delete anything `_the-agent` leaves there. `:TA` seeds `.the-agent/.gitignore` with `/clone/` and `/tmp/`. It refuses `/`, `~` and non-directories, prints every command with `--dry-run`, re-checks access with `--check` — macOS TCC can block another user from `~/Documents` even with correct ACLs, and the check says what to allow in System Settings — and undoes itself with `--uninstall` (one project) or `--uninstall --all`.
 
 ### `bash_read`
 
@@ -163,18 +166,20 @@ Runs as `_the-agent` in the real project. Tests, builds, `git log` cost nothing 
 
 ### `bash_write`
 
-For commands that must write the project: `go mod tidy`, `go generate`. The command runs as `_the-agent` in a copy-on-write clone of the project, and its writes come back as ordinary agent edits:
+For commands that must write the project: `go mod tidy`, `go generate`. The command runs as `_the-agent` in its own persistent copy of the project, and its writes come back as ordinary agent edits:
 
-1. Clone the project to a stable path, `~_the-agent/clones/<project>` — one `clonefile(2)` call on macOS, a bubblewrap overlay (`bwrap --overlay`, ≥ 0.11) on Linux. The path is stable because Go mixes the absolute directory into its build cache keys; a new path every time would miss the cache on every build.
-2. Run the command there. It can't reach the real project, because `_the-agent` can't write it.
-3. Diff the clone against the project, excluding `.git/` (`git status` in a clone always rewrites the index).
-4. Apply each changed file as an agent edit: leased, staleness-checked, sidecar for your unsaved changes, saved, undoable.
+1. Bring `.the-agent/clone` up to date with a hidden `the-agent sync <project>`, run as `_the-agent` through the same `sudo -n` path. It skips `.the-agent/`, keeps `.git`, copies the files whose size, nanosecond mtime or mode differ, one by one (`clonefile` on macOS, `FICLONE` on Linux, a plain copy otherwise), deletes what the project no longer has, and on Linux restores the ACL mask on what it touched. It is idempotent, so an interrupted sync is finished by the next one. The path is stable because Go mixes the absolute directory into its build cache keys; a new path every time would miss the cache on every build.
+2. List the clone, run the command there, list it again. It can't reach the real project, because `_the-agent` can't write it.
+3. The difference between the two listings, excluding `.git/` (a status command in a clone always rewrites the index), is what the command did.
+4. Apply each changed file as an agent edit: leased, staleness-checked, sidecar for your unsaved changes, saved, undoable. Calls on one project are serialized by a lock.
 
 The clone redirects writes; the Unix user is what blocks them. A command that `cd`s to the project's absolute path, or a tool with that path baked in, would otherwise write the real project directly.
 
-Measured on an M1 Max: cloning costs about 10 µs per file — 0.1 s at 10k files, 1 s at 100k — and the diff about as much again. Deleting the clone runs in the background.
+One mechanism on every Unix. A bubblewrap overlay was planned for Linux and dropped: overlayfs checks writes against the original files' owner, so `_the-agent` could never modify an overlay of files it doesn't own. The clone lives in the project rather than in `_the-agent`'s home so that a copy-on-write clone stays on the project's filesystem and so that I own the way out: the inherited ACL lets me delete it without sudo.
 
-As built on macOS (`tool/clonefile.go`, see `docs/tool.md`): the clone lives in `_the-agent`'s mode-0700 home, so my process can't read it. Rather than have setup open that home up, every clone step runs as `_the-agent` through the same `sudo -n` path as the command, and the results come back over stdout. That covers making the clone (it has to be `_the-agent`'s anyway, since a clone belongs to whoever creates it), listing it, and streaming the changed files back as a tar. The diff in step 3 compares the clone's listing before and after the command (inode, size, mtime, mode) rather than the clone with the project, so whatever I save in the project while the command runs is left alone. Content that already matches the project is skipped. The clone path is `~_the-agent/clones/<name>-<hash of the project path>`. A stale clone is moved aside before the next one is made, because `clonefile(2)` needs a destination that doesn't exist. Symbolic links and binary files are reported to the model, not applied.
+Measured on an M1 Max: cloning costs about 10 µs per file and the listing about as much again. With the persistent clone, later syncs cost one stat walk plus the changed files. On ext4 the first sync is a full copy.
+
+As first built on macOS (`tool/clonefile.go`, see `docs/tool.md`), before the sync: a fresh `cp -c -R` clone per call in `~_the-agent/clones/<name>-<hash of the project path>`, every step run as `_the-agent` with results streamed back over stdout, diffed by its listing before and after the command (inode, size, mtime, mode) so that whatever I save in the project meanwhile is left alone. Symbolic links and binary files are reported to the model, not applied. #27 replaces the fresh clone with the sync above.
 
 ## Streaming
 
@@ -252,8 +257,8 @@ go-client can launch `nvim --embed --headless` inside `go test`, so `vimtool` is
 - **RPC volume.** Every go-client call is a round trip. Batch everything; never call per token.
 - **Moving targets.** Regions shift under concurrent edits. Extmarks, never stored line numbers.
 - **Diagnostics timing.** LSPs report asynchronously. `edit` waits on `DiagnosticChanged` with a short timeout and reports what it has; it can't promise completeness.
-- **Clone cost.** It grows with file count — about 1 s at 100k files on macOS; on Linux, ext4 has no reflinks, so `bash_write` needs bwrap's overlay. On Ubuntu 24.04+, bwrap needs a one-time AppArmor profile.
-- **Overlay quirks.** Deletions show up as whiteouts and must be translated into deletes; renaming a directory from the lower layer fails with `EXDEV`.
+- **Clone cost.** The first sync grows with file count — about 1 s at 100k files on macOS, a full copy on ext4, which has no reflinks. Later syncs only stat and copy what changed.
+- **ACL mask on Linux.** A copied file's ACL mask comes from the mode the copier asks for, so a 0644 source leaves me `r--` on the copy and unable to delete it. Only what `_the-agent` creates natively inherits full control; the sync must restore the mask on what it copies.
 - **macOS TCC.** It can deny `_the-agent` access to `~/Documents` regardless of ACLs. `setup --check` catches it.
 
 ## Build order

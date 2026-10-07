@@ -203,7 +203,7 @@ The `bash` tool is gone. `bash_read` runs every command as `_the-agent` in the r
 
 ### `bash_write` on macOS
 
-`bash_write` runs a command that must write the project, such as `go mod tidy` or `go generate`, as `_the-agent` in a copy-on-write clone at the stable path `~_the-agent/clones/<name>-<hash>`. Every file the command created, changed or deleted, outside `.git`, then comes back as an agent edit through the buffers: saved, undone with one `u`, and with my unsaved changes set aside in a sidecar first. A deleted file is removed from disk and its buffer wiped. The clone is made with `cp -c -R` (`clonefile(2)` per file). It is diffed against its own listing from before the command, so files I save in the project meanwhile are left alone, and it is moved aside and deleted in the background afterwards. Symbolic links and binary files are reported, not applied. Since `_the-agent`'s home is mode 0700, every step that reads the clone runs as `_the-agent` through the same `sudo -n` rule, and setup is unchanged. Linux gets `bash_write` with the bubblewrap overlay (#19).
+`bash_write` runs a command that must write the project, such as `go mod tidy` or `go generate`, as `_the-agent` in a copy-on-write clone at the stable path `~_the-agent/clones/<name>-<hash>`. Every file the command created, changed or deleted, outside `.git`, then comes back as an agent edit through the buffers: saved, undone with one `u`, and with my unsaved changes set aside in a sidecar first. A deleted file is removed from disk and its buffer wiped. The clone is made with `cp -c -R` (`clonefile(2)` per file). It is diffed against its own listing from before the command, so files I save in the project meanwhile are left alone, and it is moved aside and deleted in the background afterwards. Symbolic links and binary files are reported, not applied. Since `_the-agent`'s home is mode 0700, every step that reads the clone runs as `_the-agent` through the same `sudo -n` rule, and setup is unchanged. (#19 moved the clone into the project's `.the-agent/clone`; the bubblewrap overlay once planned for Linux was dropped, because overlayfs checks writes against the original files' owner. #27 brings one sync mechanism to every Unix.)
 
 ### Package: `tool`
 
@@ -231,3 +231,37 @@ The `bash` tool is gone. `bash_read` runs every command as `_the-agent` in the r
 - `cmd/agent/main_test.go` - `bash_write` is among the tools on macOS
 - `integration/apply_shell_writes_as_edits_test.go` - through Neovim with the local runner: a change shows up in the open buffer, saved, and one `u` reverts it; new files are created and deleted ones removed with their buffer wiped; unsaved changes to a changed or a deleted file go to sidecars first
 - `integration/run_commands_as_the_agent_test.go` - `bash_write` as the real `_the-agent`: the edit is applied and undoable, and both calls run in the same clone; skips when setup is missing
+
+### Setup prepares `.the-agent/clone`
+
+`the-agent setup` now prepares each project's copy for `bash_write` inside the project. On every project it creates `.the-agent/` if missing (owned by me), and `.the-agent/clone` and `.the-agent/tmp` owned by `_the-agent`, mode 0700, with an inheritable full-control ACL for me: `chmod +a '<me> allow list,add_file,search,delete,add_subdirectory,delete_child,…,file_inherit,directory_inherit'` on macOS, `setfacl -m u:<me>:rwx,d:u:<me>:rwx,m::rwx,d:m::rwx` on Linux. So I can delete anything `_the-agent` creates there without sudo. It also grants `_the-agent` search on the folders holding the-agent's binary (skipping folders anyone can already search, such as `/usr/local/bin`, and those the project step covers), so `_the-agent` can run it. `~_the-agent` keeps only the Go caches: `tmp` and `clones` are no longer created there. The check, run by `--check` and by `:TA`, now also probes that `_the-agent` can run the binary and write `.the-agent/clone` and `.the-agent/tmp`, and names `sudo the-agent setup <project>` when it can't. `--uninstall` removes the project's clone and tmp; `--uninstall` of one project keeps search on the binary's folders, `--uninstall --all` removes it. `bash_read`'s `TMPDIR` is now `<project>/.the-agent/tmp`, and `:TA` seeds `.the-agent/.gitignore` with `/clone/` and `/tmp/` when there is none. Until #27, `bash_write` on macOS still clones into `~_the-agent/clones`, which it now creates itself.
+
+On Linux the inherited ACL covers what `_the-agent` creates natively; a copy (`cp`, `rsync`) requests the source's mode, which caps the ACL mask, so copied files are not deletable by me until something restores the mask. #27's sync does that.
+
+### Package: `setup`
+
+- `Host.Binary` - the-agent's binary, symlinks resolved; `Local` fills it in
+- `Binary() (string, error)` - the running executable, symlinks resolved
+- `Ready(project, binary string) error` - the `--check` probes run on this machine: read the project, run the binary, write `.the-agent/clone` and `.the-agent/tmp`
+- `CACHES` is now `gocache`, `gomodcache`; `FOLDER = ".the-agent"`, `OWNED = clone, tmp`
+
+### Package: `nvim`
+
+- `:TA` seeds `.the-agent/.gitignore` (`GITIGNORE`) when it doesn't exist and never overwrites one
+
+### Package: `tool`
+
+- `Sandbox.Environment()` sets `TMPDIR=<project>/.the-agent/tmp`
+- the macOS cloner creates its clones folder before using it
+
+### Package: `cmd/agent`
+
+- the `--nvim` binary passes its own path to `setup.Ready`
+
+### Tests
+
+- `setup/setup_test.go` - the first-project, later-project and Linux dry runs print the clone, tmp, ACL and binary-search commands; a set-up project prints `exists` for every step; `--check` names setup when `_the-agent` can't run the binary or write the clone; `--uninstall` removes the clone and tmp and reports `absent` when they're gone
+- `tool/bash_read_test.go` - `TMPDIR` is the project's `.the-agent/tmp`
+- `integration/open_session_test.go` - `:TA` seeds `.the-agent/.gitignore` once and keeps an existing one
+- `integration/run_commands_as_the_agent_test.go` - the project is now the set-up repository itself (only setup, as root, can make its `.the-agent/{clone,tmp}`), with each test working in a temp folder inside it and its own session; I can delete files and folders `_the-agent` created in `.the-agent/clone` and `.the-agent/tmp`; `$TMPDIR` is `<project>/.the-agent/tmp`; all skip unless `_the-agent` can write the project's clone and tmp
+- `sender/kimi_integration_test.go` - `defer cancel()` for `go vet`
