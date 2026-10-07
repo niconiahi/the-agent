@@ -31,7 +31,8 @@ func (current *frontend) tools(client *neovim.Nvim) []tool.Tool {
 }
 
 // Open loads the child's session.md into a buffer and routes the child's
-// events, which carry the child's ID (its session directory), into it. They
+// events, which carry the child's ID (its session directory), into it and
+// into the follow window's edit preview. They
 // reach the router straight from the child agent, never through the parent,
 // which would stamp them with its own ID.
 func (current host) Open(path string) (func(orchestrator.AgentEvent), func(error), error) {
@@ -56,20 +57,24 @@ func (current host) Open(path string) (func(orchestrator.AgentEvent), func(error
 	directory := filepath.Dir(path)
 	frontend := current.frontend
 	replies := &reply_writer{output: output, directory: directory, model: frontend.config.Model.ID, now: frontend.config.Now}
-	remove := frontend.routes.add(directory, replies.handle)
-	return frontend.routes.route, current.end(replies, remove), nil
+	previews := start_previewer(current.client)
+	remove := frontend.routes.add(directory, func(event orchestrator.AgentEvent) {
+		replies.handle(event)
+		previews.handle(event)
+	})
+	return frontend.routes.route, current.end(replies, previews, remove), nil
 }
 
 // end stops routing the child's events and closes its stream the way send
 // closes a root turn: a fresh ## user heading, unlocked and saved. The child's
 // own error reaches the parent as the tool result, so it isn't notified here.
-func (current host) end(replies *reply_writer, remove func()) func(error) {
+func (current host) end(replies *reply_writer, previews *previewer, remove func()) func(error) {
 	return func(error) {
 		remove()
 		if replies.wrote {
 			replies.output.begin("## user\n")
 		}
-		if failure := errors.Join(replies.failure, replies.output.finish()); failure != nil {
+		if failure := errors.Join(replies.failure, previews.finish(), replies.output.finish()); failure != nil {
 			notify(current.client, failure.Error(), LOG_LEVEL_ERROR)
 		}
 	}

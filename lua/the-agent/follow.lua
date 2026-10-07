@@ -1,8 +1,28 @@
 -- The follow window and the streaming edit preview. Go calls preview() with
--- the fields of an edit call complete so far, at most once per flush, and
--- clear() when the call ends, fails or is aborted. The preview is only
--- extmarks: it never changes a buffer's text.
+-- the agent making an edit call and the fields of the call complete so far,
+-- at most once per flush, and clear() when the call ends, fails or is
+-- aborted. The preview is only extmarks: it never changes a buffer's text.
 local M = {}
+
+-- The directory of the session I was last in. The follow window follows its
+-- agent and that agent's subagents, whose sessions live below it; edits by
+-- any other agent only notify. nil until I enter a session: follow everyone.
+local followed = nil
+
+-- Called whenever I enter a session (or subagent session) file.
+function M.enter(buffer)
+  followed = vim.fs.dirname(vim.api.nvim_buf_get_name(buffer))
+end
+
+-- An agent's ID is its session directory.
+local function follows(agent)
+  return followed == nil or agent == followed or vim.startswith(agent, followed .. "/")
+end
+
+-- The session's name as :TA knows it: its path under the sessions folder.
+local function session_name(agent)
+  return agent:match("/%.the%-agent/sessions/(.+)$") or vim.fs.basename(agent)
+end
 
 -- The follow window: the dedicated window the agent travels in. It is never
 -- the window I am in.
@@ -81,9 +101,18 @@ local function draw(state, new_text)
   })
 end
 
-function M.preview(id, fields)
+function M.preview(id, agent, fields)
   local state = previews[id] or {}
   previews[id] = state
+  if not follows(agent) then
+    -- Not mine: say where it is going once, and leave the follow window.
+    -- If I switch to its session mid-call, the next update draws it.
+    if fields.path and not state.notified then
+      state.notified = true
+      require("the-agent").notify(session_name(agent) .. " is editing " .. fields.path)
+    end
+    return
+  end
   if fields.path and fields.path ~= state.path then
     state.path = fields.path
     state.buffer = require("the-agent.buffer").open(fields.path)

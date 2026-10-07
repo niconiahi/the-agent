@@ -41,6 +41,16 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   desc = "the-agent: fold thinking blocks",
 })
 
+-- The follow window follows the session I was last in.
+vim.api.nvim_create_autocmd("BufEnter", {
+  group = group,
+  pattern = SESSION_PATTERN,
+  callback = function(args)
+    require("the-agent.follow").enter(args.buf)
+  end,
+  desc = "the-agent: follow this session's edits",
+})
+
 local function highlights()
   vim.api.nvim_set_hl(0, "TheAgentTokensNear", { link = "DiagnosticError", default = true })
 end
