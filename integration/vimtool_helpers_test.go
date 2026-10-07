@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,10 +42,19 @@ func call(id string, name string, arguments map[string]any) message.ToolCall {
 
 func send_agent_turn(harness *nvimtest.Harness) {
 	harness.T.Helper()
-	harness.Command("TA foo")
+	send_agent_turn_in(harness, "foo")
+}
+
+func send_agent_turn_in(harness *nvimtest.Harness, session string) {
+	harness.T.Helper()
+	harness.Command("TA " + session)
 	harness.SetText(harness.Text() + "go\n")
 	harness.Command("TASend")
-	harness.WaitFor("the turn", func() bool { return strings.HasSuffix(on_disk(harness), "\ndone\n\n## user\n\n") })
+	path := nvim.SessionPath(harness.Dir, session)
+	harness.WaitFor("the turn", func() bool {
+		contents, _ := os.ReadFile(path)
+		return strings.HasSuffix(string(contents), "\ndone\n\n## user\n\n")
+	})
 }
 
 func tool_results(t *testing.T, provider *nvimtest.Provider) []message.ToolResultMessage {

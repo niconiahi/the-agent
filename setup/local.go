@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -18,11 +19,16 @@ func Local(output io.Writer) (Host, error) {
 	if error != nil {
 		return Host{}, error
 	}
+	binary, error := Binary()
+	if error != nil {
+		return Host{}, error
+	}
 	return Host{
 		System:    runtime.GOOS,
 		Invoker:   account.Username,
 		Home:      account.HomeDir,
 		Directory: directory,
+		Binary:    binary,
 		Root:      os.Geteuid() == 0,
 		Shell:     exec_shell{},
 		Output:    output,
@@ -55,14 +61,19 @@ func Home() string {
 	return target.home()
 }
 
-func Ready(project string) error {
+func Binary() (string, error) {
+	binary, error := os.Executable()
+	if error != nil {
+		return "", error
+	}
+	return filepath.EvalSymlinks(binary)
+}
+
+func Ready(project string, binary string) error {
 	target, error := platform_for(runtime.GOOS)
 	if error != nil {
 		return error
 	}
-	output, error := exec.Command("sudo", "-n", "-u", USER, "ls", project).CombinedOutput()
-	if error != nil {
-		return target.diagnose(project, string(output))
-	}
-	return nil
+	current := &machine{host: Host{System: runtime.GOOS, Binary: binary, Shell: exec_shell{}, Output: io.Discard}, platform: target}
+	return current.check(project)
 }

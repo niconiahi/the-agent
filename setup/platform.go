@@ -11,6 +11,7 @@ const DARWIN_HOME = "/var/the-agent"
 const LINUX_HOME = "/var/lib/the-agent"
 const DARWIN_READ = USER + " allow read,execute,readattr,readextattr,readsecurity,file_inherit,directory_inherit"
 const DARWIN_SEARCH = USER + " allow search"
+const DARWIN_FULL = " allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,writesecurity,chown,file_inherit,directory_inherit"
 const DARWIN_FIRST_ID = 400
 const DARWIN_LAST_ID = 499
 
@@ -26,6 +27,8 @@ type platform interface {
 	has_search(current *machine, directory string) bool
 	grant_search(directory string) Command
 	revoke_search(directory string) Command
+	has_full(current *machine, directory string, invoker string) bool
+	grant_full(invoker string, directories []string) Command
 	diagnose(project string, output string) error
 }
 
@@ -123,6 +126,17 @@ func (darwin) revoke_search(directory string) Command {
 	return command("chmod", "-a", DARWIN_SEARCH, directory)
 }
 
+func (darwin) has_full(current *machine, directory string, invoker string) bool {
+	output, found := current.probe("ls", "-lde", directory)
+	lines := strings.Split(output, "\n")
+	fields := strings.Fields(lines[0])
+	return found && len(fields) > 2 && fields[2] == USER && strings.Contains(output, "user:"+invoker+DARWIN_FULL)
+}
+
+func (darwin) grant_full(invoker string, directories []string) Command {
+	return command(append([]string{"chmod", "+a", invoker + DARWIN_FULL}, directories...)...)
+}
+
 func (darwin) diagnose(project string, output string) error {
 	if strings.Contains(output, "Operation not permitted") {
 		return fmt.Errorf("macOS privacy protection (TCC) stops %s from reading %s even though the ACLs are in place. Open System Settings → Privacy & Security → Full Disk Access, allow the app you run Neovim in (your terminal), then run the-agent setup --check again", USER, project)
@@ -176,6 +190,17 @@ func (linux) grant_search(directory string) Command {
 
 func (linux) revoke_search(directory string) Command {
 	return command("setfacl", "-x", "u:"+USER, directory)
+}
+
+func (linux) has_full(current *machine, directory string, invoker string) bool {
+	output, found := current.probe("getfacl", "-p", directory)
+	lines := strings.Split(output, "\n")
+	return found && contains(lines, "# owner: "+USER) && contains(lines, "user:"+invoker+":rwx") && contains(lines, "default:user:"+invoker+":rwx") && contains(lines, "mask::rwx") && contains(lines, "default:mask::rwx")
+}
+
+func (linux) grant_full(invoker string, directories []string) Command {
+	entry := "u:" + invoker + ":rwx"
+	return command(append([]string{"setfacl", "-m", entry + ",d:" + entry + ",m::rwx,d:m::rwx"}, directories...)...)
 }
 
 func (linux) diagnose(project string, output string) error {

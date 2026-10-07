@@ -188,6 +188,7 @@ func TestKimiStream_ContextCancellation(t *testing.T) {
 	}
 
 	invocation_context, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	stream, error := Stream(invocation_context, target, llm_context, options)
 	if error != nil {

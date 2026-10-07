@@ -28,7 +28,12 @@ func new_session(text string) bool {
 
 func build_binary(t *testing.T) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "the-agent")
+	return build_binary_in(t, t.TempDir())
+}
+
+func build_binary_in(t *testing.T, directory string) string {
+	t.Helper()
+	binary := filepath.Join(directory, "the-agent")
 	build := exec.Command("go", "build", "-o", binary, "./cmd/agent")
 	build.Dir = nvimtest.RepoRoot()
 	if output, error := build.CombinedOutput(); error != nil {
@@ -77,24 +82,30 @@ func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 }
 
 func TestNvimMode_OpensSessionsInASetUpProject(t *testing.T) {
-	project := sandbox_project(t)
-	harness := nvimtest.LaunchIn(t, project)
+	current := sandbox_project(t)
+	harness := nvimtest.LaunchIn(t, current.project)
+	first, second := current.name+"-first", current.name+"-second"
+	t.Cleanup(func() {
+		for _, name := range []string{first, second} {
+			os.RemoveAll(filepath.Join(current.project, ".the-agent", "sessions", name))
+		}
+	})
 
-	binary := build_binary(t)
+	binary := build_binary_in(t, current.directory)
 	harness.Setup(`{ bin = ... }`, binary)
 
-	harness.Command("TA foo")
-	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); !new_session(got) {
+	harness.Command("TA " + first)
+	if got := harness.ReadFile(".the-agent/sessions/" + first + "/session.md"); !new_session(got) {
 		t.Fatalf("session not created by the binary: %q", got)
 	}
 
-	other := filepath.Join(harness.Dir, "elsewhere")
+	other := current.path("elsewhere")
 	if error := os.Mkdir(other, 0o755); error != nil {
 		t.Fatal(error)
 	}
 	harness.Command("cd " + other)
-	harness.Command("TA bar")
-	if got, want := harness.BufferName(), filepath.Join(harness.Dir, ".the-agent", "sessions", "bar", "session.md"); got != want {
+	harness.Command("TA " + second)
+	if got, want := harness.BufferName(), filepath.Join(harness.Dir, ".the-agent", "sessions", second, "session.md"); got != want {
 		t.Fatalf("after :cd the session must stay in the binary's project %q, got %q", want, got)
 	}
 }

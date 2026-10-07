@@ -16,7 +16,11 @@ const SUDOERS_DRAFT = SUDOERS + ".tmp"
 const SYSTEM_DARWIN = "darwin"
 const SYSTEM_LINUX = "linux"
 
-var CACHES = []string{"gocache", "gomodcache", "tmp", "clones"}
+var CACHES = []string{"gocache", "gomodcache"}
+
+const FOLDER = ".the-agent"
+
+var OWNED = []string{"clone", "tmp"}
 
 var ERROR_NOT_ROOT = errors.New("setup changes system users, sudoers and ACLs: run it as sudo the-agent setup, or add --dry-run to see the commands")
 var ERROR_ALL_WITHOUT_UNINSTALL = errors.New("--all only goes with --uninstall")
@@ -30,6 +34,7 @@ type Host struct {
 	Invoker   string
 	Home      string
 	Directory string
+	Binary    string
 	Root      bool
 	Shell     Shell
 	Output    io.Writer
@@ -87,6 +92,9 @@ func Run(host Host, arguments []string) error {
 	if resolved, error := filepath.EvalSymlinks(host.Home); error == nil {
 		host.Home = resolved
 	}
+	if resolved, error := filepath.EvalSymlinks(host.Binary); error == nil {
+		host.Binary = resolved
+	}
 	machine := &machine{host: host, platform: target, dry_run: parsed.dry_run}
 	if !parsed.check && !parsed.dry_run && !host.Root {
 		return ERROR_NOT_ROOT
@@ -112,7 +120,7 @@ func parse(arguments []string) (options, error) {
 	flags := flag.NewFlagSet("the-agent setup", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&parsed.dry_run, "dry-run", false, "print every command without running it")
-	flags.BoolVar(&parsed.check, "check", false, "verify _the-agent can read the project")
+	flags.BoolVar(&parsed.check, "check", false, "verify _the-agent can read the project, run the-agent and write .the-agent/{clone,tmp}")
 	flags.BoolVar(&parsed.uninstall, "uninstall", false, "undo setup for the project")
 	flags.BoolVar(&parsed.all, "all", false, "with --uninstall, remove everything")
 	if error := flags.Parse(arguments); error != nil {

@@ -77,9 +77,12 @@ func run_nvim() {
 	target := model.KimiK25()
 	api_key := os.Getenv("KIMI_API_KEY")
 	project := working_directory()
+	binary := binary_path()
 	config := nvim.Config{
-		Project:       project,
-		Sandbox:       setup.Ready,
+		Project: project,
+		Sandbox: func(project string) error {
+			return setup.Ready(project, binary)
+		},
 		Model:         &target,
 		SystemPrompt:  SYSTEM_PROMPT,
 		StreamOptions: &sender.StreamOptions{APIKey: api_key},
@@ -103,6 +106,14 @@ func run_nvim() {
 	if error := client.Serve(); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
+}
+
+func binary_path() string {
+	binary, error := setup.Binary()
+	if error != nil {
+		log.Fatalf("the-agent: %v", error)
+	}
+	return binary
 }
 
 func working_directory() string {
