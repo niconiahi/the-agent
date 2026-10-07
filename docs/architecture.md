@@ -15,7 +15,9 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
                ↑              ↑
                └──── nvim ────┘
                       ↑
-                  cmd/agent
+       vimtool ──→ tool
+          ↑           ↑
+          └─ cmd/agent ┘
 ```
 
 **message** and **model** are the two roots. They don't import anything internal. They don't know about each other. `message` defines the data that flows through the system — what a user said, what the assistant replied, what a tool returned. `model` defines the LLM being targeted — its endpoint, its limits, its pricing.
@@ -27,6 +29,8 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
 **session** owns the `session.md` format and imports only `message`. It parses a file into the messages the model receives, with the file's timestamps in their content and orphaned tool calls or results left out, and renders turns, thinking, tool calls, tool results and image references back byte for byte. It also estimates a session's tokens against its ceiling. It knows nothing about Neovim.
 
 **nvim** is the frontend. It answers the Lua plugin's msgpack-RPC requests (`:TA`, `:TASend`, `:TAAbort`, the statusline count, the thinking folds), runs a fresh orchestrator agent per send with the parsed session as history, and streams the reply into the session buffer, which stays locked while the turn runs. `nvim/nvimtest` is its headless-Neovim harness, used by the tests in `/integration`. The Lua side (`plugin/`, `lua/the-agent/`) stays thin: it forwards commands and applies the edits Go asks for.
+
+**vimtool** holds the tools that need the editor. They wrap or replace `tool` tools and take the Neovim client; `cmd/agent` builds them once the client exists. `vimtool.Grep` runs the plain grep and fills the quickfix list with its hits. It never imports `nvim`.
 
 Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool and session, then orchestrator, then nvim.
 

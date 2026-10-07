@@ -13,6 +13,7 @@ import (
 	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/sender"
 	"github.com/niconiahi/the-agent/tool"
+	"github.com/niconiahi/the-agent/vimtool"
 
 	_ "github.com/niconiahi/the-agent/sender"
 )
@@ -34,13 +35,13 @@ func main() {
 	run_nvim()
 }
 
-func default_tools() []tool.Tool {
+func default_tools(client *neovim.Nvim) []tool.Tool {
 	return []tool.Tool{
 		tool.ReadTool(),
 		tool.BashTool(),
 		tool.EditTool(),
 		tool.WriteTool(),
-		tool.GrepTool(),
+		vimtool.Grep(client),
 		tool.FindTool(),
 		tool.LsTool(),
 	}
@@ -54,7 +55,6 @@ func run_nvim() {
 	config := nvim.Config{
 		Model:         &target,
 		SystemPrompt:  SYSTEM_PROMPT,
-		Tools:         default_tools(),
 		StreamOptions: &sender.StreamOptions{APIKey: api_key},
 		Ready: func() error {
 			if api_key == "" {
@@ -68,6 +68,7 @@ func run_nvim() {
 	if error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
+	config.Tools = default_tools(client)
 	if error := nvim.Attach(client, config); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}

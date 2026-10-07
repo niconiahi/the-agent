@@ -78,3 +78,17 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 ### Integration tests
 
 `integration/` drives a headless Neovim through `nvimtest` and the real binary: opening, sending, streaming, tool turns, orphan repair, the ceiling, the statusline, images, the system prompt, key mappings and the lazy.nvim spec.
+
+## Milestone: Buffer-backed file tools
+
+### Package: `vimtool`
+
+**Constants**:
+- `QUICKFIX_TITLE = "the-agent grep"` - title of the quickfix list grep fills
+
+**Functions**:
+- `Grep(client *neovim.Nvim) tool.Tool` - `tool.GrepTool` with the same result, plus one quickfix entry per hit
+
+### Integration tests
+
+- `integration/fill_quickfix_from_grep_test.go` - a grep tool call fills the quickfix list with file, line and text per hit, for a directory and a single file, and the model's result is rg's output
