@@ -103,7 +103,7 @@ func TestEdit_ReplaceWithEmpty(t *testing.T) {
 	}
 }
 
-func TestGenerateDiff_SingleLine(t *testing.T) {
+func TestDiff_SingleLine(t *testing.T) {
 	diff := Diff("hello", "world")
 
 	if diff != "- hello\n+ world\n" {
@@ -111,7 +111,7 @@ func TestGenerateDiff_SingleLine(t *testing.T) {
 	}
 }
 
-func TestGenerateDiff_MultiLine(t *testing.T) {
+func TestDiff_MultiLine(t *testing.T) {
 	diff := Diff("line1\nline2", "line1\nchanged")
 
 	if !strings.Contains(diff, "- line1") || !strings.Contains(diff, "- line2") {
@@ -122,7 +122,7 @@ func TestGenerateDiff_MultiLine(t *testing.T) {
 	}
 }
 
-func TestGenerateDiff_AddLines(t *testing.T) {
+func TestDiff_AddLines(t *testing.T) {
 	diff := Diff("one", "one\ntwo\nthree")
 
 	plus_count := strings.Count(diff, "+ ")
@@ -135,7 +135,7 @@ func TestGenerateDiff_AddLines(t *testing.T) {
 	}
 }
 
-func TestGenerateDiff_RemoveLines(t *testing.T) {
+func TestDiff_RemoveLines(t *testing.T) {
 	diff := Diff("one\ntwo\nthree", "one")
 
 	plus_count := strings.Count(diff, "+ ")

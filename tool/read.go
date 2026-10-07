@@ -37,24 +37,30 @@ func execute_read(_ context.Context, _ string, arguments map[string]any) (ToolRe
 		return ToolResult{}, fmt.Errorf("failed to read file: %v", error)
 	}
 
-	return Numbered(string(data), arguments), nil
+	return Numbered(string(data), LineRangeFrom(arguments)), nil
 }
 
-func Numbered(content string, arguments map[string]any) ToolResult {
+type LineRange struct {
+	Offset int
+	Limit  int
+}
+
+func LineRangeFrom(arguments map[string]any) LineRange {
+	line_range := LineRange{Offset: 1, Limit: MAX_READ_LINES}
+	if offset, ok := arguments["offset"].(float64); ok {
+		line_range.Offset = int(offset)
+	}
+	if limit, ok := arguments["limit"].(float64); ok {
+		line_range.Limit = int(limit)
+	}
+	return line_range
+}
+
+func Numbered(content string, line_range LineRange) ToolResult {
 	lines := strings.Split(content, "\n")
 
-	offset := 1
-	if raw_offset, ok := arguments["offset"].(float64); ok {
-		offset = int(raw_offset)
-	}
-	if offset < 1 {
-		offset = 1
-	}
-
-	limit := MAX_READ_LINES
-	if raw_limit, ok := arguments["limit"].(float64); ok {
-		limit = int(raw_limit)
-	}
+	offset := max(line_range.Offset, 1)
+	limit := line_range.Limit
 
 	start := offset - 1
 	if start >= len(lines) {

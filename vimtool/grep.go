@@ -17,9 +17,9 @@ import (
 
 const QUICKFIX_TITLE = "the-agent grep"
 
-var HIT_IN_DIRECTORY = regexp.MustCompile(`^(.+?):(\d+):(.*)$`)
+var hit_in_directory = regexp.MustCompile(`^(.+?):(\d+):(.*)$`)
 
-var HIT_IN_FILE = regexp.MustCompile(`^(\d+):(.*)$`)
+var hit_in_file = regexp.MustCompile(`^(\d+):(.*)$`)
 
 type quickfix_item struct {
 	Filename string `msgpack:"filename"`
@@ -35,7 +35,7 @@ func Grep(client *neovim.Nvim) tool.Tool {
 		if error != nil {
 			return result, error
 		}
-		items := hits(search_path(arguments), result)
+		items := quickfix_items(search_path(arguments), result)
 		if error := client.ExecLua(`vim.fn.setqflist({}, " ", { title = select(1, ...), items = select(2, ...) })`, nil, QUICKFIX_TITLE, items); error != nil {
 			log.Printf("the-agent: grep quickfix: %v", error)
 		}
@@ -51,7 +51,7 @@ func search_path(arguments map[string]any) string {
 	return "."
 }
 
-func hits(path string, result tool.ToolResult) []quickfix_item {
+func quickfix_items(path string, result tool.ToolResult) []quickfix_item {
 	items := []quickfix_item{}
 	if len(result.Content) == 0 {
 		return items
@@ -65,13 +65,13 @@ func hits(path string, result tool.ToolResult) []quickfix_item {
 	for _, line := range strings.Split(text.Text, "\n") {
 		filename, number, hit := path, "", ""
 		if single_file {
-			match := HIT_IN_FILE.FindStringSubmatch(line)
+			match := hit_in_file.FindStringSubmatch(line)
 			if match == nil {
 				continue
 			}
 			number, hit = match[1], match[2]
 		} else {
-			match := HIT_IN_DIRECTORY.FindStringSubmatch(line)
+			match := hit_in_directory.FindStringSubmatch(line)
 			if match == nil {
 				continue
 			}

@@ -8,7 +8,7 @@ import (
 
 const DIAGNOSTICS_WAIT = 500 * time.Millisecond
 
-func report(diagnostics []diagnostic) string {
+func diagnostics_section(diagnostics []diagnostic) string {
 	if len(diagnostics) == 0 {
 		return ""
 	}

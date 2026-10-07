@@ -8,13 +8,6 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
-func undo(harness *nvimtest.Harness, path string) {
-	harness.T.Helper()
-	if error := harness.Nvim.ExecLua(`vim.api.nvim_buf_call(vim.fn.bufnr(...), function() vim.cmd("silent undo") end)`, nil, path); error != nil {
-		harness.T.Fatal(error)
-	}
-}
-
 func TestEdit_ChangesTheOpenBufferSavesItAndOneUndoRevertsIt(t *testing.T) {
 	harness, provider := start_with_vimtool(t, call("tc_1", "edit", map[string]any{"path": "a.txt", "old_text": "two\nthree", "new_text": "TWO\nTHREE\nFOUR"}))
 	path := filepath.Join(harness.Dir, "a.txt")
@@ -74,18 +67,6 @@ func TestEdit_UnmatchedOrRepeatedOldTextIsAToolErrorAndChangesNothing(t *testing
 	}
 }
 
-func record_notifications(harness *nvimtest.Harness) func() []string {
-	harness.T.Helper()
-	harness.Command(`lua _G.notes = {}; vim.notify = function(message) table.insert(_G.notes, message) end`)
-	return func() []string {
-		var notes []string
-		if error := harness.Nvim.ExecLua(`return _G.notes`, &notes); error != nil {
-			harness.T.Fatal(error)
-		}
-		return notes
-	}
-}
-
 func TestEdit_SetsMyUnsavedChangesAsideInASidecarThenEditsTheDiskVersion(t *testing.T) {
 	config := nvimtest.Config()
 	config.Now = fixed_clock("2026-10-06T14:32:00Z")
@@ -114,6 +95,10 @@ func TestEdit_SetsMyUnsavedChangesAsideInASidecarThenEditsTheDiskVersion(t *test
 	notes := notifications()
 	if len(notes) != 1 || !strings.Contains(notes[0], filepath.Join(harness.Dir, sidecar)) {
 		t.Fatalf("notifications: %q", notes)
+	}
+	undo(harness, path)
+	if got := buffer_lines(harness, path); got != "one\n" {
+		t.Fatalf("after one undo: %q", got)
 	}
 }
 

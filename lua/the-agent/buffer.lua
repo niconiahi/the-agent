@@ -213,8 +213,13 @@ local function prepare(path, agent, stamp)
   if not sidecar then
     return nil, failure
   end
+  -- The reload and the agent's change run in one RPC request, which would
+  -- make them one undo block, so one u would bring my unsaved text back.
+  -- Setting 'undolevels' to itself breaks the undo sequence (:h undo-break),
+  -- so one u reverts only the agent's change and lands on the disk version.
   vim.api.nvim_buf_call(buffer, function()
     vim.cmd("silent edit!")
+    vim.cmd("let &l:undolevels = &l:undolevels")
   end)
   require("the-agent").notify(
     "your unsaved changes to " .. vim.fn.fnamemodify(path, ":.") .. " were saved to " .. sidecar,
@@ -225,7 +230,7 @@ end
 
 -- Marks the changed text with an extmark, saves and records the agent's
 -- tick. Given the diagnostics snapshot taken before the change, it watches
--- for new ones so release can report them.
+-- for new ones so close_region can report them.
 local function finish(buffer, agent, start_row, start_col, end_row, end_col, before)
   local mark = vim.api.nvim_buf_set_extmark(buffer, NAMESPACE, start_row, start_col, {
     end_row = end_row,
@@ -327,10 +332,10 @@ function M.filter(path, command, agent, stamp)
   return finish(buffer, agent, 0, 0, last_row, #last_line)
 end
 
--- Ends an edit's region: waits up to `timeout` milliseconds for an attached
+-- Ends a change's region: waits up to `timeout` milliseconds for an attached
 -- LSP to publish diagnostics (no LSP, no wait), returns the new ones inside
 -- the region and deletes the mark.
-function M.release(region, timeout)
+function M.close_region(region, timeout)
   local key = region.buffer .. ":" .. region.mark
   local state = watches[key]
   local diagnostics = {}

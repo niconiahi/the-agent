@@ -3,7 +3,6 @@ package vimtool
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	neovim "github.com/neovim/go-client/nvim"
 
@@ -23,14 +22,14 @@ func Read(client *neovim.Nvim) tool.Tool {
 
 	return tool.NewTool("read", "Read file contents as the editor sees them", parameters,
 		func(invocation_context context.Context, _ string, arguments map[string]any) (tool.ToolResult, error) {
-			path, ok := arguments["path"].(string)
-			if !ok {
-				return tool.ToolResult{}, fmt.Errorf("path is required")
-			}
-			result, error := call(client, "read", path, session_directory(invocation_context))
+			path, error := required_string(arguments, "path")
 			if error != nil {
 				return tool.ToolResult{}, error
 			}
-			return tool.Numbered(result.Content, arguments), nil
+			read, error := call_buffer_function(client, "read", path, session_directory(invocation_context))
+			if error != nil {
+				return tool.ToolResult{}, error
+			}
+			return tool.Numbered(read.Content, tool.LineRangeFrom(arguments)), nil
 		})
 }
