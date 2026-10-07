@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	neovim "github.com/neovim/go-client/nvim"
@@ -42,16 +43,19 @@ const (
 const NEW_SESSION = "## user\n\n"
 
 type frontend struct {
-	config Config
+	config  Config
+	mutex   sync.Mutex
+	running map[int]bool
 }
 
 func Attach(client *neovim.Nvim, config Config) error {
 	if config.Now == nil {
 		config.Now = time.Now
 	}
-	current := &frontend{config: config}
+	current := &frontend{config: config, running: map[int]bool{}}
 	return errors.Join(
 		client.RegisterHandler(METHOD_OPEN, current.open),
+		client.RegisterHandler(METHOD_SEND, current.send),
 	)
 }
 
