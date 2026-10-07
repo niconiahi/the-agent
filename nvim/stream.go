@@ -1,6 +1,7 @@
 package nvim
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -49,9 +50,12 @@ type stream struct {
 	done chan struct{}
 }
 
-// start_stream begins streaming into buffer, whose current contents are text
-// (as written to disk), and starts the flush ticker.
-func start_stream(client *neovim.Nvim, buffer neovim.Buffer, text string) *stream {
+// start_stream locks buffer, whose current contents are text (as written to
+// disk), and starts streaming into it.
+func start_stream(client *neovim.Nvim, buffer neovim.Buffer, text string) (*stream, error) {
+	if error := client.ExecLua(`require("the-agent.stream").lock(...)`, nil, int(buffer)); error != nil {
+		return nil, error
+	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	current := &stream{
 		client:    client,
@@ -64,7 +68,7 @@ func start_stream(client *neovim.Nvim, buffer neovim.Buffer, text string) *strea
 		done:      make(chan struct{}),
 	}
 	go current.tick()
-	return current
+	return current, nil
 }
 
 func (current *stream) tick() {
@@ -145,14 +149,13 @@ func (current *stream) replace(index int, line string) error {
 	return current.set_lines(index, index+1, []string{line})
 }
 
-// finish stops the ticker, flushes what is left and saves the buffer.
+// finish stops the ticker, flushes what is left, unlocks the buffer and
+// saves it. The buffer is unlocked even when the flush fails.
 func (current *stream) finish() error {
 	close(current.stop)
 	<-current.done
-	if error := current.flush(); error != nil {
-		return error
-	}
-	return current.client.ExecLua(`require("the-agent.stream").write(...)`, nil, int(current.buffer))
+	flushed := current.flush()
+	return errors.Join(flushed, current.client.ExecLua(`require("the-agent.stream").finish(...)`, nil, int(current.buffer)))
 }
 
 func (current *stream) set_lines(first int, last int, lines []string) error {

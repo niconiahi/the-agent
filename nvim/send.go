@@ -55,7 +55,11 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return error
 	}
 
-	output := start_stream(client, handle, stamped)
+	output, error := start_stream(client, handle, stamped)
+	if error != nil {
+		current.finish(buffer)
+		return error
+	}
 	go func() {
 		defer current.finish(buffer)
 		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
