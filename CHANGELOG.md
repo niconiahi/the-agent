@@ -360,6 +360,44 @@ Every orchestrator event names the agent that emitted it, and the `nvim` package
 
 - `integration/run_parallel_sessions_test.go` - two sessions sent at once each stream only into their own file and are both locked until their own turn ends; `:TAAbort` in one leaves the other locked and running to completion
 
+## Milestone: Streaming edit previews
+
+I watch an `edit` happen while its arguments stream. A dedicated follow window, opened beside everything else and never the window I am in, shows the file as soon as `path` has streamed; once `old_text` has streamed the region is found, scrolled to and highlighted; while `new_text` streams it grows as virtual lines under the region. The preview is only extmarks, so the buffer text never changes until the real `edit` runs (one undo block, saved), after which the extmarks are gone; an aborted turn, a stream that fails mid-call or an edit that fails clears them and leaves the file byte-identical. Updates go to Neovim at most once per `FLUSH_INTERVAL`.
+
+### Package: `partialjson`
+
+**Types**:
+- `Fields{Complete map[string]string, Streaming string, Partial string}` - the string fields complete so far and the decoded prefix of the one streaming
+
+**Functions**:
+- `Read(text string) Fields` - reads the accumulated fragments of a streaming JSON object; splits mid-key, mid-escape, mid-surrogate-pair and mid-UTF-8 never show half a character
+
+### Package: `sender`
+
+- `EventToolCallStart` carries the call's `ID` and `Name`
+
+### Package: `nvim`
+
+**Constants**:
+- `PREVIEW_TOOL = "edit"` - the tool whose streaming arguments are previewed
+
+### Package: `nvim/nvimtest`
+
+**Types**:
+- `Gate` (`NewGate`, `Step`) - holds a scripted stream before each tool-argument fragment and before the `ToolCallEnd`
+- `Reply.Fragments`, `Reply.Gate` - stream a tool call's arguments in given fragments, paused by a gate
+
+### Lua plugin
+
+- `lua/the-agent/follow.lua` - the follow window (`w:the_agent_follow`) and `preview(id, fields)` / `clear(id)` on namespace `the-agent-preview`, highlights `TheAgentPreviewOld` and `TheAgentPreviewNew`
+- `lua/the-agent/buffer.lua` - `open(path)` loads a file without showing it; `locate(buffer, old_text)` is the region `edit` replaces
+
+### Tests
+
+- `partialjson/partialjson_test.go` - table tests for splits mid-key, mid-escape, mid-unicode-escape, mid-surrogate-pair and mid-UTF-8, skipped non-string values, and every byte prefix of an escape-heavy document agreeing with `encoding/json`
+- `sender/kimi_tool_call_start_test.go` - the start event names the call before its arguments stream
+- `integration/preview_streaming_edits_test.go` - the fake stream pauses between fragments to assert the follow window, highlight, virtual text, untouched buffer and unmoved current window at each stage; then the real edit with no extmarks left and one undo; abort, a failing stream and a failing edit clear the preview and leave the file byte-identical
+
 ## Milestone: task tool with explorer subagents
 
 A root session's agent can delegate with `task`: a fresh explorer agent runs the job in a numbered subfolder of the session (`01-map-callers-of-foo/session.md`), linked to the same `system_prompt.md`, with the job as its timestamped first `## user` message. The child streams into its own file and only its final answer comes back as the tool result; the parent's file shows the call, a relative link to the child (`gf` opens it) and the report. `:TAAbort` on the parent aborts the child.

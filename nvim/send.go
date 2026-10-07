@@ -58,11 +58,15 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	go func() {
 		defer current.finish(buffer)
 		replies := &reply_writer{output: output, directory: prepared.directory, model: current.config.Model.ID, now: current.config.Now}
-		error := current.run(running.context, client, prepared, replies.handle)
+		previews := start_previewer(client)
+		error := current.run(running.context, client, prepared, func(event orchestrator.AgentEvent) {
+			replies.handle(event)
+			previews.handle(event)
+		})
 		if running.context.Err() != nil {
 			error = nil
 		}
-		error = errors.Join(error, replies.failure)
+		error = errors.Join(error, replies.failure, previews.finish())
 
 		if replies.wrote {
 			output.begin("## user\n")

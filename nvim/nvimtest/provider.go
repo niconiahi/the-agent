@@ -43,6 +43,35 @@ type Reply struct {
 
 	StopReason   message.StopReason
 	ErrorMessage string
+
+	// Fragments, when set, holds for each tool call the argument JSON to
+	// stream as separate deltas, in place of its marshalled Arguments. The
+	// ToolCallEnd still carries the call as given.
+	Fragments [][]string
+	// Gate, when set, holds the reply's tool calls before each argument
+	// fragment and before each ToolCallEnd until the test steps it.
+	Gate *Gate
+}
+
+// Gate pauses a scripted stream between tool-argument fragments so a test
+// can look at Neovim at each point of the stream.
+type Gate struct {
+	steps chan struct{}
+}
+
+func NewGate() *Gate {
+	return &Gate{steps: make(chan struct{})}
+}
+
+// Step lets the next fragment (or the ToolCallEnd after the last one)
+// through, returning once the stream has taken it.
+func (gate *Gate) Step(t *testing.T) {
+	t.Helper()
+	select {
+	case gate.steps <- struct{}{}:
+	case <-time.After(5 * time.Second):
+		t.Fatal("nvimtest: the stream never reached the gate")
+	}
 }
 
 func Text(text string, total_tokens int) Reply {
@@ -180,14 +209,39 @@ func (provider *Provider) stream(invocation_context context.Context, target *mod
 				content = append(content, message.TextContent{Text: text})
 			}
 		}
-		for _, call := range reply.ToolCalls {
+		hold := func() bool {
+			if reply.Gate == nil {
+				return true
+			}
+			select {
+			case <-invocation_context.Done():
+				aborted := &message.AssistantMessage{StopReason: message.STOP_REASON_ABORTED, Timestamp: time.Now()}
+				stream.Push(sender.EventError{StopReason: message.STOP_REASON_ABORTED, Message: aborted})
+				return false
+			case <-reply.Gate.steps:
+				return true
+			}
+		}
+		for position, call := range reply.ToolCalls {
 			index := len(content)
-			stream.Push(sender.EventToolCallStart{ContentIndex: index, Message: output})
+			stream.Push(sender.EventToolCallStart{ContentIndex: index, ID: call.ID, Name: call.Name, Message: output})
 			if !wait() {
 				return
 			}
 			arguments, _ := json.Marshal(call.Arguments)
-			stream.Push(sender.EventToolCallDelta{ContentIndex: index, Delta: string(arguments), Message: output})
+			fragments := []string{string(arguments)}
+			if position < len(reply.Fragments) {
+				fragments = reply.Fragments[position]
+			}
+			for _, fragment := range fragments {
+				if !hold() {
+					return
+				}
+				stream.Push(sender.EventToolCallDelta{ContentIndex: index, Delta: fragment, Message: output})
+			}
+			if !hold() {
+				return
+			}
 			stream.Push(sender.EventToolCallEnd{ContentIndex: index, ToolCall: call, Message: output})
 			content = append(content, call)
 		}

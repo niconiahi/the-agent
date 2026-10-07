@@ -69,6 +69,19 @@ local function record(buffer, agent)
   vim.b[buffer].the_agent_ticks = ticks
 end
 
+-- The loaded buffer for path, loading the file without showing it; nil when
+-- the file is neither loaded nor readable.
+function M.open(path)
+  path = resolve(path)
+  if find(path) then
+    return find(path)
+  end
+  if vim.fn.filereadable(path) == 0 then
+    return nil
+  end
+  return load(path)
+end
+
 function M.read(path, agent)
   path = resolve(path)
   local buffer = find(path)
@@ -250,6 +263,30 @@ local function finish(buffer, agent, start_row, start_col, end_row, end_col, bef
   return { region = { buffer = buffer, mark = mark } }
 end
 
+-- Where the one occurrence of old_text sits in buffer: 0-based start and
+-- end rows and byte columns, and through_end when it runs through the
+-- file's final newline (which is no buffer line). nil and why otherwise.
+function M.locate(buffer, old_text)
+  local text = content(buffer)
+  local first, count = occurrences(text, old_text)
+  if count == 0 then
+    return nil, "old_text not found in file"
+  end
+  if count > 1 then
+    return nil, string.format("old_text found %d times, must be unique", count)
+  end
+  local region = {}
+  region.start_row, region.start_col = position(text, first - 1)
+  region.end_row, region.end_col = position(text, first - 1 + #old_text)
+  local last_row = vim.api.nvim_buf_line_count(buffer) - 1
+  if region.end_row > last_row then
+    region.end_row = last_row
+    region.end_col = #vim.api.nvim_buf_get_lines(buffer, last_row, last_row + 1, true)[1]
+    region.through_end = true
+  end
+  return region
+end
+
 -- Replaces the one occurrence of old_text, marks the new text with an
 -- extmark and saves.
 function M.edit(path, old_text, new_text, agent, stamp)
@@ -265,22 +302,12 @@ function M.edit(path, old_text, new_text, agent, stamp)
     return { error = failure }
   end
 
-  local text = content(buffer)
-  local first, count = occurrences(text, old_text)
-  if count == 0 then
-    return { error = "old_text not found in file" }
+  local region, failure = M.locate(buffer, old_text)
+  if not region then
+    return { error = failure }
   end
-  if count > 1 then
-    return { error = string.format("old_text found %d times, must be unique", count) }
-  end
-
-  local start_row, start_col = position(text, first - 1)
-  local end_row, end_col = position(text, first - 1 + #old_text)
-  local last_row = vim.api.nvim_buf_line_count(buffer) - 1
-  if end_row > last_row then
-    -- old_text runs through the file's final newline, which is no buffer line.
-    end_row = last_row
-    end_col = #vim.api.nvim_buf_get_lines(buffer, last_row, last_row + 1, true)[1]
+  local start_row, start_col, end_row, end_col = region.start_row, region.start_col, region.end_row, region.end_col
+  if region.through_end then
     new_text = (new_text:gsub("\n$", ""))
   end
 
