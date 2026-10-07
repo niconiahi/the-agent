@@ -47,6 +47,54 @@ func TestTASend_ContinuingAChildAmendsTheParentsResult(t *testing.T) {
 	}
 }
 
+func TestTASend_ContinuingAChildAmendsTheResultOfItsTaskCallWhereverItsLinkIs(t *testing.T) {
+	link := "[" + CHILD + "](" + CHILD + "/session.md)\n\n"
+	call := "```tool_call id=t1 name=task ts=2026-10-06T14:32:00Z\n"
+	for name, move := range map[string]func(string) string{
+		"removed": func(text string) string { return strings.Replace(text, link, "", 1) },
+		"moved":   func(text string) string { return strings.Replace(strings.Replace(text, link, "", 1), call, link+call, 1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			harness, _ := start_delegating(t,
+				nvimtest.Text("Foo is called at a.go:3", 7),
+				nvimtest.Text("Foo is called at a.go:3 and b.go:9", 8),
+			)
+			wait_for_parent(harness)
+			harness.WaitFor("the parent buffer", func() bool { return strings.HasSuffix(harness.Text(), "\ndone\n\n## user\n\n") })
+			harness.SetText(move(harness.Text()))
+			harness.Command("write")
+
+			continue_child(harness, "you missed b.go")
+
+			want := "```tool_result id=t1 amended=2026-10-06T14:32:00Z\nFoo is called at a.go:3 and b.go:9\n```\n"
+			harness.WaitFor("the amended parent on disk", func() bool { return strings.Contains(session_on_disk(harness, "foo"), want) })
+		})
+	}
+}
+
+func TestTASend_ContinuingAChildAmendsItsOwnResultWhenTurnsReuseACallID(t *testing.T) {
+	provider := nvimtest.RegisterProvider(t,
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"job": "first job"})}},
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"job": "second job"})}},
+		nvimtest.Text("done", 10),
+	)
+	provider.Script("first job", nvimtest.Text("first report", 1), nvimtest.Text("first report, corrected", 1))
+	provider.Script("second job", nvimtest.Text("second report", 1))
+	harness := start_turn(t, nvimtest.Config())
+	wait_for_parent(harness)
+
+	harness.Command("edit " + child_session(harness, "01-first-job"))
+	harness.SetText(harness.Text() + "again\n")
+	harness.Command("TASend")
+
+	harness.WaitFor("the amended first result", func() bool {
+		return strings.Contains(session_on_disk(harness, "foo"), "amended=2026-10-06T14:32:00Z\nfirst report, corrected\n```")
+	})
+	if !strings.Contains(session_on_disk(harness, "foo"), "```tool_result id=t1 ts=2026-10-06T14:32:00Z\nsecond report\n```") {
+		t.Fatalf("the second result should be left alone:\n%s", session_on_disk(harness, "foo"))
+	}
+}
+
 func TestTASend_AContinuedWorkerKeepsItsEditingTools(t *testing.T) {
 	provider := nvimtest.RegisterProvider(t,
 		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"role": "worker", "job": JOB})}},

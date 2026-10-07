@@ -9,13 +9,11 @@ import (
 	"github.com/niconiahi/the-agent/message"
 )
 
-// fenced is a tool block found in a session's text, by line: start is its
-// opening fence and end its closing one.
 type fenced struct {
-	kind  string
-	attrs map[string]string
-	start int
-	end   int
+	kind       string
+	attributes map[string]string
+	start      int
+	end        int
 }
 
 func fenced_blocks(lines []string) []fenced {
@@ -25,7 +23,7 @@ func fenced_blocks(lines []string) []fenced {
 		if !ok {
 			continue
 		}
-		kind, attrs := parse_info(info)
+		kind, attributes := parse_info(info)
 		closing := index + 1
 		for closing < len(lines) && !fence_close(strings.TrimSuffix(lines[closing], "\n"), run) {
 			closing++
@@ -33,66 +31,68 @@ func fenced_blocks(lines []string) []fenced {
 		if closing == len(lines) {
 			break
 		}
-		blocks = append(blocks, fenced{kind: kind, attrs: attrs, start: index, end: closing})
+		blocks = append(blocks, fenced{kind: kind, attributes: attributes, start: index, end: closing})
 		index = closing
 	}
 	return blocks
 }
 
-// linked_result finds the tool_result right after the line that is link,
-// with only blank lines between: the result a subagent's report went into.
-func linked_result(lines []string, link string) (fenced, bool) {
-	blocks := fenced_blocks(lines)
-	for index, line := range lines {
-		if strings.TrimSpace(line) != link {
-			continue
-		}
-		next := index + 1
-		for next < len(lines) && strings.TrimSpace(lines[next]) == "" {
-			next++
-		}
-		for _, block := range blocks {
-			if block.start == next && block.kind == BLOCK_TOOL_RESULT {
-				return block, true
-			}
-		}
-	}
-	return fenced{}, false
+type task_pair struct {
+	call   message.ToolCall
+	result fenced
+	found  bool
 }
 
-// LinkedCall is the tool call whose result follows link in text, the call
-// that started the subagent link points to. It is false when that result
-// or its call is gone.
-func LinkedCall(text string, link string) (message.ToolCall, bool) {
-	lines := split_lines(text)
-	result, ok := linked_result(lines, link)
-	if !ok {
-		return message.ToolCall{}, false
-	}
-	for _, block := range fenced_blocks(lines) {
-		if block.kind != BLOCK_TOOL_CALL || block.attrs["id"] != result.attrs["id"] {
+func find_task(lines []string, origin Origin) (task_pair, bool) {
+	blocks := fenced_blocks(lines)
+	candidates := []task_pair{}
+	for index, block := range blocks {
+		if block.kind != BLOCK_TOOL_CALL || block.attributes["name"] != "task" || block.attributes["id"] != origin.Call {
 			continue
 		}
 		arguments := map[string]any{}
 		body := strings.Join(lines[block.start+1:block.end], "")
 		if strings.TrimSpace(body) != "" && json.Unmarshal([]byte(body), &arguments) != nil {
-			return message.ToolCall{}, false
+			continue
 		}
-		return message.ToolCall{ID: block.attrs["id"], Name: block.attrs["name"], Arguments: arguments}, true
+		pair := task_pair{call: message.ToolCall{ID: origin.Call, Name: "task", Arguments: arguments}}
+		for _, next := range blocks[index+1:] {
+			if next.attributes["id"] != origin.Call {
+				continue
+			}
+			if next.kind == BLOCK_TOOL_CALL {
+				break
+			}
+			if next.kind == BLOCK_TOOL_RESULT {
+				pair.result, pair.found = next, true
+				break
+			}
+		}
+		candidates = append(candidates, pair)
 	}
-	return message.ToolCall{}, false
+	if len(candidates) == 0 {
+		return task_pair{}, false
+	}
+	for index := len(candidates) - 1; index >= 0; index-- {
+		if job, _ := candidates[index].call.Arguments["job"].(string); strings.TrimSpace(job) == origin.Job {
+			return candidates[index], true
+		}
+	}
+	return candidates[len(candidates)-1], true
 }
 
-// Amend replaces the tool_result that follows link in text with report,
-// marked amended=at: a continued subagent's new final answer. It returns
-// text unchanged, and false, when there is no such result.
-func Amend(text string, link string, report string, at time.Time) (string, bool) {
+func TaskCall(text string, origin Origin) (message.ToolCall, bool) {
+	pair, ok := find_task(split_lines(text), origin)
+	return pair.call, ok
+}
+
+func Amend(text string, origin Origin, report string, at time.Time) (string, bool) {
 	lines := split_lines(text)
-	result, ok := linked_result(lines, link)
-	if !ok {
+	pair, ok := find_task(lines, origin)
+	if !ok || !pair.found {
 		return text, false
 	}
-	info := fmt.Sprintf("%s id=%s amended=%s", BLOCK_TOOL_RESULT, result.attrs["id"], stamp(at))
+	info := fmt.Sprintf("%s id=%s amended=%s", BLOCK_TOOL_RESULT, origin.Call, stamp(at))
 	amended := render_block(info, report) + "\n"
-	return strings.Join(lines[:result.start], "") + amended + strings.Join(lines[result.end+1:], ""), true
+	return strings.Join(lines[:pair.result.start], "") + amended + strings.Join(lines[pair.result.end+1:], ""), true
 }

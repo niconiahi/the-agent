@@ -20,9 +20,6 @@ type host struct {
 	client   *neovim.Nvim
 }
 
-// tools is the tool set of the session in directory: everything for a
-// root session, its role's tools for a subagent, and task below the depth
-// limit.
 func (current *frontend) tools(client *neovim.Nvim, directory string) []tool.Tool {
 	return subagent.Config{
 		Model:         current.config.Model,
@@ -36,50 +33,50 @@ func (current *frontend) tools(client *neovim.Nvim, directory string) []tool.Too
 	}.ToolsFor(directory)
 }
 
-// amend puts a continued subagent's new report into its direct parent's
-// tool result, in the parent's buffer when it is loaded and on disk
-// otherwise. A parent whose result is gone is left alone.
 func (current *frontend) amend(client *neovim.Nvim, directory string, report string) error {
-	if subagent.Depth(directory) == 0 || report == "" {
+	if report == "" {
 		return nil
 	}
-	path := filepath.Join(filepath.Dir(directory), "session.md")
-	link := subagent.Link{Folder: filepath.Base(directory)}.String()
-	var number int
+	parent, ok := subagent.ParentOf(directory)
+	if !ok {
+		return nil
+	}
+	buffer, text, error := session_text(client, parent.Path)
+	if error != nil {
+		return error
+	}
+	amended, ok := session.Amend(text, parent.Origin, report, current.config.Now())
+	if !ok {
+		return nil
+	}
+	if buffer < 0 {
+		return os.WriteFile(parent.Path, []byte(amended), 0o644)
+	}
+	var modifiable bool
+	if error := client.BufferOption(neovim.Buffer(buffer), "modifiable", &modifiable); error != nil {
+		return error
+	}
+	if !modifiable {
+		return fmt.Errorf("%s is running: its result for %s was not amended", parent.Path, filepath.Base(directory))
+	}
+	return repair_buffer(client, neovim.Buffer(buffer), text, amended)
+}
+
+func session_text(client *neovim.Nvim, path string) (int, string, error) {
+	var buffer int
 	if error := client.ExecLua(`
 		local buffer = vim.fn.bufnr(...)
 		if buffer < 0 or not vim.api.nvim_buf_is_loaded(buffer) then return -1 end
 		return buffer
-	`, &number, path); error != nil {
-		return error
+	`, &buffer, path); error != nil {
+		return 0, "", error
 	}
-	if number < 0 {
-		contents, error := os.ReadFile(path)
-		if error != nil {
-			return error
-		}
-		if amended, ok := session.Amend(string(contents), link, report, current.config.Now()); ok {
-			return os.WriteFile(path, []byte(amended), 0o644)
-		}
-		return nil
+	if buffer >= 0 {
+		text, error := buffer_text(client, neovim.Buffer(buffer))
+		return buffer, text, error
 	}
-	buffer := neovim.Buffer(number)
-	text, error := buffer_text(client, buffer)
-	if error != nil {
-		return error
-	}
-	amended, ok := session.Amend(text, link, report, current.config.Now())
-	if !ok {
-		return nil
-	}
-	var modifiable bool
-	if error := client.BufferOption(buffer, "modifiable", &modifiable); error != nil {
-		return error
-	}
-	if !modifiable {
-		return fmt.Errorf("%s is running: its result for %s was not amended", path, filepath.Base(directory))
-	}
-	return repair_buffer(client, buffer, text, amended)
+	contents, error := os.ReadFile(path)
+	return buffer, string(contents), error
 }
 
 func (current host) Open(path string) (func(orchestrator.AgentEvent), func(error), error) {

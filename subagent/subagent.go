@@ -69,17 +69,42 @@ func (config Config) task(caller role) tool.Tool {
 	})
 }
 
+type Parent struct {
+	Path   string
+	Origin session.Origin
+}
+
+func ParentOf(directory string) (Parent, bool) {
+	if Depth(directory) == 0 {
+		return Parent{}, false
+	}
+	contents, error := os.ReadFile(filepath.Join(directory, "session.md"))
+	if error != nil {
+		return Parent{}, false
+	}
+	parsed, error := session.Parse(string(contents))
+	if error != nil {
+		return Parent{}, false
+	}
+	origin, ok := parsed.Origin()
+	if !ok {
+		return Parent{}, false
+	}
+	return Parent{Path: filepath.Join(filepath.Dir(directory), "session.md"), Origin: origin}, true
+}
+
 func (config Config) ToolsFor(directory string) []tool.Tool {
 	depth := Depth(directory)
 	if depth == 0 {
 		return config.tools(ROLE_ROOT, depth)
 	}
 	current := ROLE_EXPLORER
-	contents, error := os.ReadFile(filepath.Join(filepath.Dir(directory), "session.md"))
-	if error == nil {
-		link := Link{Folder: filepath.Base(directory)}.String()
-		if call, ok := session.LinkedCall(string(contents), link); ok && call.Arguments["role"] == string(ROLE_WORKER) {
-			current = ROLE_WORKER
+	if parent, ok := ParentOf(directory); ok {
+		contents, error := os.ReadFile(parent.Path)
+		if error == nil {
+			if call, ok := session.TaskCall(string(contents), parent.Origin); ok && call.Arguments["role"] == string(ROLE_WORKER) {
+				current = ROLE_WORKER
+			}
 		}
 	}
 	return config.tools(current, depth)
@@ -120,7 +145,7 @@ func (config Config) run(invocation_context context.Context, caller role, call s
 		return tool.ToolResult{}, error
 	}
 	path := filepath.Join(directory, "session.md")
-	prompt, first, error := config.write_session(path, job, now())
+	prompt, first, error := config.write_session(path, call, job, now())
 	if error != nil {
 		return tool.ToolResult{}, error
 	}
@@ -150,12 +175,12 @@ func (config Config) run(invocation_context context.Context, caller role, call s
 	}, nil
 }
 
-func (config Config) write_session(path string, job string, at time.Time) (string, message.Message, error) {
+func (config Config) write_session(path string, call string, job string, at time.Time) (string, message.Message, error) {
 	link, error := filepath.Rel(filepath.Dir(path), config.SystemPrompt)
 	if error != nil {
 		return "", nil, error
 	}
-	parsed, error := session.Parse(session.NewLinked(filepath.ToSlash(link), at) + strings.TrimSpace(job) + "\n")
+	parsed, error := session.Parse(session.NewChild(filepath.ToSlash(link), call, at) + strings.TrimSpace(job) + "\n")
 	if error != nil {
 		return "", nil, error
 	}

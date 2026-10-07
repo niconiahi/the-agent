@@ -89,6 +89,7 @@ func TestTask_RunsTheJobInANumberedChildSessionAndReturnsOnlyTheReport(t *testin
 
 	want_child := "[system_prompt.md](../../../system_prompt.md)\n\n" +
 		"created · 2026-10-06T14:32:00Z\n\n" +
+		"task call · t1\n\n" +
 		"## user · 2026-10-06T14:32:00Z\n\nmap callers of Foo\n\n" +
 		"## assistant · fake-model · 2026-10-06T14:32:00Z · 6 tokens\n\n" +
 		"```tool_call id=c1 name=grep ts=2026-10-06T14:32:00Z\n{\"pattern\":\"Foo\"}\n```\n\n" +
