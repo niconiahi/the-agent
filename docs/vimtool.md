@@ -1,6 +1,6 @@
 # vimtool
 
-The file tools of the `--nvim` binary, backed by Neovim buffers instead of `os.WriteFile`. When the agent changes a file, the change lands in the buffer I may be looking at, one `u` takes it back, the LSP sees it as an ordinary buffer change, and it is saved at once so `bash_read`, `grep` and builds read it from disk too. `find`, `ls` and `bash_read` stay in `tool`; `Grep` here wraps `tool`'s grep and fills the quickfix list with its hits (see `tool.md`).
+The file tools of the `--nvim` binary, backed by Neovim buffers instead of `os.WriteFile`. When the agent changes a file, the change lands in the buffer I may be looking at, one `u` takes it back, the LSP sees it as an ordinary buffer change, and it is saved at once so `bash_read`, `grep` and builds read it from disk too. `find`, `ls` and `bash_read` stay in `tool`, and so does `bash_write`, which gets this package's write and delete injected (`Replay` below); `Grep` here wraps `tool`'s grep and fills the quickfix list with its hits (see `tool.md`).
 
 Each tool is built with the Neovim client it talks to (`Read(client)`, `Edit(client)`, `Write(client)`, `Filter(client)`, `Grep(client)`), so `cmd/agent` builds them after it connects and tests bind them to the harness with `nvimtest.StartWithTools`. The logic runs in Lua, `lua/the-agent/buffer.lua`, one function per tool step, so each step is a single RPC request (`call_buffer_function` in `vimtool.go`). Everything one request changes is one undo block, which is what makes an agent edit exactly one `u`.
 
@@ -52,3 +52,7 @@ Sets a buffer's whole content and saves it, creating the file and its parent dir
 ## filter.go — Filter
 
 Runs a text-in, text-out shell command (`sort`, `gofmt`, a `sed` expression) over the whole buffer through `nvim_buf_call`, like `:%!command`, then saves, so it is one undo block like any agent edit. `%`, `#` and `!` in the command are escaped, so the command reaches the shell as written. A command that exits non-zero would leave its output in the buffer, so it is undone in the same request: the buffer, the disk and the undo history are as before, and the tool error carries the exit code and output. The result is `Filtered <path> through <command>`.
+
+## replay.go — Replay
+
+`Replay(client)` returns the `tool.Replay` that `bash_write` applies its changes with, so `tool` never imports Neovim. `Write` is the `write` step above (`change_buffer` with `"write"`): the file is loaded or reused, my unsaved changes go to a sidecar, the whole content is set and saved, and one `u` undoes it. `Delete` calls `delete` in `buffer.lua`. If the file's buffer has unsaved changes of mine, they go to a sidecar first, with the same path, timestamp and warning as above. Then the file is removed from disk and its buffer wiped (`nvim_buf_delete` with `force`), so no buffer is left holding a file that no longer exists. Undo can't bring a deleted file back: my unsaved text survives in the sidecar, and the saved version is whatever git has. A delete leaves empty directories in place.
