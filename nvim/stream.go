@@ -37,8 +37,13 @@ type stream struct {
 	done chan struct{}
 }
 
-func start_stream(client *neovim.Nvim, buffer neovim.Buffer, text string) (*stream, error) {
-	if error := client.ExecLua(`require("the-agent.stream").lock(...)`, nil, int(buffer)); error != nil {
+func start_stream(client *neovim.Nvim, buffer neovim.Buffer, before string, text string) (*stream, error) {
+	batch := client.NewBatch()
+	if error := replace_changed_line(batch, buffer, before, text); error != nil {
+		return nil, error
+	}
+	batch.ExecLua(`require("the-agent.stream").lock(...)`, nil, int(buffer))
+	if error := batch.Execute(); error != nil {
 		return nil, error
 	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")

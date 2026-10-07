@@ -46,15 +46,10 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	}
 
 	stamped := parsed.Render()
-	if error := replace_changed_line(client, handle, text, stamped); error != nil {
-		current.finish(buffer)
-		return error
-	}
-
 	parsed.Repair()
 	repaired := parsed.Render()
 
-	output, error := start_stream(client, handle, stamped)
+	output, error := start_stream(client, handle, text, stamped)
 	if error != nil {
 		current.finish(buffer)
 		return error
@@ -122,7 +117,7 @@ func to_lines(text string) [][]byte {
 	return lines
 }
 
-func replace_changed_line(client *neovim.Nvim, buffer neovim.Buffer, before string, after string) error {
+func replace_changed_line(batch *neovim.Batch, buffer neovim.Buffer, before string, after string) error {
 	if before == after {
 		return nil
 	}
@@ -132,7 +127,8 @@ func replace_changed_line(client *neovim.Nvim, buffer neovim.Buffer, before stri
 	}
 	for index := range old_lines {
 		if string(old_lines[index]) != string(new_lines[index]) {
-			return client.SetBufferLines(buffer, index, index+1, true, new_lines[index:index+1])
+			batch.SetBufferLines(buffer, index, index+1, true, new_lines[index:index+1])
+			return nil
 		}
 	}
 	return nil
