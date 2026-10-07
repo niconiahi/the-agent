@@ -330,3 +330,32 @@ On Linux the inherited ACL covers what `_the-agent` creates natively; a copy (`c
 
 - `setup/setup_test.go` - the dry runs give the home to root and only the caches to `_the-agent`; a home `_the-agent` owned, with a linked cache and a linked registry, is taken back; `--uninstall` refuses a linked `.the-agent` and `--uninstall --all` a clone that isn't a folder, running nothing that changes the machine; a sudoers file without my line gets it added to the existing one; an unreadable sudoers file counts as present in a dry run without root
 - `tool/bash_write_test.go` - folders the command removed, nested or empty, are removed from the project; one still holding my file is kept and reported
+
+## Milestone: Agent IDs and parallel root sessions
+
+Every orchestrator event names the agent that emitted it, and the `nvim` package routes each event into that agent's own `session.md`. Several root sessions can run at once in one Neovim: each is locked on its own, and `:TAAbort` stops only the current one.
+
+### Package: `orchestrator`
+
+**Types**:
+- `Source` - embedded in every event; `AgentID()` returns the emitting agent's ID
+
+**Functions**:
+- `WithID(id string) AgentOption` - names the agent; without it `New` assigns a unique `agent-N`
+
+**Methods**:
+- `(*Agent).ID() string` - the ID stamped on every event the agent emits
+- `AgentEvent.AgentID() string` - part of the event interface
+
+### Package: `nvim`
+
+- `run` names each agent after its session directory and subscribes it through a router that sends each event to the stream registered for its agent ID
+
+### Package: `nvim/nvimtest`
+
+**Methods**:
+- `(*Provider).Script(key string, replies ...Reply)` - replies for the agent whose first user message contains `key`, so agents running at once each get their own
+
+### Integration tests
+
+- `integration/run_parallel_sessions_test.go` - two sessions sent at once each stream only into their own file and are both locked until their own turn ends; `:TAAbort` in one leaves the other locked and running to completion
