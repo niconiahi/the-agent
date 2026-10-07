@@ -6,11 +6,17 @@ import (
 	"testing"
 
 	"github.com/niconiahi/the-agent/message"
+	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 	"github.com/niconiahi/the-agent/vimtool"
 )
 
 func start_with_vimtool(t *testing.T, calls ...message.ToolCall) (*nvimtest.Harness, *nvimtest.Provider) {
+	t.Helper()
+	return start_with_vimtool_config(t, nvimtest.Config(), calls...)
+}
+
+func start_with_vimtool_config(t *testing.T, config nvim.Config, calls ...message.ToolCall) (*nvimtest.Harness, *nvimtest.Provider) {
 	t.Helper()
 	replies := []nvimtest.Reply{}
 	for _, call := range calls {
@@ -18,7 +24,7 @@ func start_with_vimtool(t *testing.T, calls ...message.ToolCall) (*nvimtest.Harn
 	}
 	replies = append(replies, nvimtest.Text("done", 10))
 	provider := nvimtest.RegisterProvider(t, replies...)
-	harness := nvimtest.StartWithTools(t, nvimtest.Config(), vimtool.Tools)
+	harness := nvimtest.StartWithTools(t, config, vimtool.Tools)
 	return harness, provider
 }
 

@@ -95,7 +95,7 @@ func (current *frontend) run(invocation_context context.Context, prepared *reque
 	)
 
 	agent.Subscribe(listener)
-	return agent.Prompt(vimtool.WithSession(invocation_context, prepared.directory), last)
+	return agent.Prompt(vimtool.WithSession(invocation_context, prepared.directory, current.config.Now), last)
 }
 
 func buffer_text(client *neovim.Nvim, buffer neovim.Buffer) (string, error) {
