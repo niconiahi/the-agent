@@ -39,6 +39,7 @@ func (drawn statusline) red() bool {
 
 func TestStatusline_ShowsCountAgainstCeiling(t *testing.T) {
 	harness := nvimtest.Start(t, nvimtest.Config())
+	harness.WriteFile(".the-agent/system_prompt.md", nvimtest.Config().SystemPrompt+"\n")
 
 	harness.Command("TA foo")
 
@@ -50,6 +51,7 @@ func TestStatusline_ShowsCountAgainstCeiling(t *testing.T) {
 
 func TestStatusline_FollowsEdits(t *testing.T) {
 	harness := nvimtest.Start(t, nvimtest.Config())
+	harness.WriteFile(".the-agent/system_prompt.md", nvimtest.Config().SystemPrompt+"\n")
 
 	harness.Command("TA foo")
 	harness.SetText(harness.Text() + strings.Repeat("x", 400) + "\n")
@@ -60,6 +62,7 @@ func TestStatusline_FollowsEdits(t *testing.T) {
 
 func TestStatusline_TurnsRedNearCeiling(t *testing.T) {
 	harness := nvimtest.Start(t, nvimtest.Config())
+	harness.WriteFile(".the-agent/system_prompt.md", nvimtest.Config().SystemPrompt+"\n")
 	harness.Setup(`{ ceiling = 14 }`)
 
 	harness.Command("TA foo")

@@ -37,6 +37,16 @@ const (
 	METHOD_THINKING = "the_agent_thinking"
 )
 
+const SYSTEM_PROMPT_GUIDE = `## Project instructions
+
+This file is the whole system prompt: nothing else is added to it. Paste this
+project's AGENTS.md here, or the parts of it the agent should follow.
+
+## Skills
+
+List the skills the agent may use here, one per line with what each is for.
+`
+
 func SystemPromptPath(project string) string {
 	return filepath.Join(project, ".the-agent", "system_prompt.md")
 }
@@ -111,7 +121,7 @@ func (current *frontend) seed_system_prompt(project string) error {
 	if error := os.MkdirAll(filepath.Dir(path), 0o755); error != nil {
 		return error
 	}
-	return os.WriteFile(path, []byte(strings.TrimSpace(current.config.SystemPrompt)+"\n"), 0o644)
+	return os.WriteFile(path, []byte(strings.TrimSpace(current.config.SystemPrompt)+"\n\n"+SYSTEM_PROMPT_GUIDE), 0o644)
 }
 
 func thinking(client *neovim.Nvim, buffer int) ([][2]int, error) {

@@ -3,6 +3,7 @@ package nvim_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
@@ -51,8 +52,12 @@ func TestTA_SeedsSystemPromptOnce(t *testing.T) {
 	harness := nvimtest.Start(t, config)
 
 	harness.Command("TA foo")
-	if got := harness.ReadFile(".the-agent/system_prompt.md"); got != config.SystemPrompt+"\n" {
-		t.Fatalf("system_prompt.md not seeded: %q", got)
+	seeded := harness.ReadFile(".the-agent/system_prompt.md")
+	if !strings.HasPrefix(seeded, config.SystemPrompt+"\n") {
+		t.Fatalf("system_prompt.md not seeded: %q", seeded)
+	}
+	if !strings.Contains(seeded, "AGENTS.md") || !strings.Contains(seeded, "skills") {
+		t.Fatalf("the seed must say where AGENTS.md and the skill list go: %q", seeded)
 	}
 
 	harness.WriteFile(".the-agent/system_prompt.md", "my rules\n")
