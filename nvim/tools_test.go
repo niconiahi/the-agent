@@ -28,6 +28,55 @@ const TOOL_TURN = "## user · 2026-10-06T14:32:00Z\n\nwhat is in a.txt?\n\n" +
 	"it says hello\n\n" +
 	"## user\n\n"
 
+func fold_start(t *testing.T, harness *nvimtest.Harness, line int) int {
+	t.Helper()
+	var start int
+	if error := harness.Nvim.Call("foldclosed", &start, line); error != nil {
+		t.Fatal(error)
+	}
+	return start
+}
+
+func TestTA_FoldsThinkingClosedAndDapRemovesIt(t *testing.T) {
+	provider := nvimtest.RegisterProvider(t, nvimtest.Text("ok", 10))
+	harness := nvimtest.Start(t, nvimtest.Config())
+	harness.WriteFile(SESSION, TOOL_TURN)
+
+	harness.Command("TA foo")
+
+	// TOOL_TURN: the thinking block is lines 7-9, the tool_call 11-13.
+	for line := 7; line <= 9; line++ {
+		if got := fold_start(t, harness, line); got != 7 {
+			t.Errorf("line %d: want inside a closed fold starting at 7, got %d", line, got)
+		}
+	}
+	for _, line := range []int{5, 6, 10, 11, 12, 15} {
+		if got := fold_start(t, harness, line); got != -1 {
+			t.Errorf("line %d: want unfolded, got fold at %d", line, got)
+		}
+	}
+
+	harness.Command("call cursor(8, 1)")
+	harness.Command("normal! dap")
+	if strings.Contains(harness.Text(), "thinking") {
+		t.Fatalf("dap left the thinking block:\n%s", harness.Text())
+	}
+
+	harness.SetText(harness.Text() + "thanks\n")
+	harness.Command("TASend")
+	harness.WaitFor("reply", func() bool { return strings.Contains(harness.Text(), "\nok\n") })
+
+	for _, value := range provider.Requests()[0].Messages {
+		if assistant, ok := value.(message.AssistantMessage); ok {
+			for _, content := range assistant.Content {
+				if _, ok := content.(message.ThinkingContent); ok {
+					t.Fatalf("deleted thinking was sent: %#v", assistant)
+				}
+			}
+		}
+	}
+}
+
 func TestTASend_ToolTurnWritesThinkingCallResultAndAnswer(t *testing.T) {
 	provider := nvimtest.RegisterProvider(t,
 		nvimtest.Reply{
@@ -50,6 +99,9 @@ func TestTASend_ToolTurnWritesThinkingCallResultAndAnswer(t *testing.T) {
 	harness.WaitFor("the tool turn on disk", func() bool { return harness.ReadFile(SESSION) == TOOL_TURN })
 	if got := harness.Text(); got != TOOL_TURN {
 		t.Fatalf("buffer\nwant %q\ngot  %q", TOOL_TURN, got)
+	}
+	if got := fold_start(t, harness, 8); got != 7 {
+		t.Errorf("the new thinking block must be folded closed, got fold at %d", got)
 	}
 
 	// The next send reads the whole tool exchange back from the file.

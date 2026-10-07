@@ -186,6 +186,7 @@ func append_tail(client *neovim.Nvim, buffer neovim.Buffer, before string, after
 	}
 	batch := client.NewBatch()
 	batch.SetBufferLines(buffer, -1, -1, true, to_lines(tail))
+	batch.ExecLua(`require("the-agent").fold_thinking(...)`, nil, int(buffer), len(to_lines(before))+1)
 	batch.ExecLua(`vim.api.nvim_buf_call(..., function() vim.cmd("silent write") end)`, nil, int(buffer))
 	return batch.Execute()
 }
