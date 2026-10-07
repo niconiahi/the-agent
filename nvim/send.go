@@ -59,6 +59,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return error
 	}
 	if size.above() {
+		publish(client, handle, size)
 		return ceiling_error(size)
 	}
 
@@ -88,6 +89,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
 		}
+		current.refresh(client, buffer)
 	}()
 	return nil
 }

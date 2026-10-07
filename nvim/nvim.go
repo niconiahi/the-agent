@@ -40,6 +40,8 @@ type Config struct {
 const (
 	METHOD_OPEN = "the_agent_open"
 	METHOD_SEND = "the_agent_send"
+	// METHOD_COUNT is sent as a notification; it updates b:the_agent_tokens.
+	METHOD_COUNT = "the_agent_count"
 )
 
 // NEW_SESSION is the contents of a freshly created session.md.
@@ -64,6 +66,7 @@ func Attach(client *neovim.Nvim, config Config) error {
 	return errors.Join(
 		client.RegisterHandler(METHOD_OPEN, current.open),
 		client.RegisterHandler(METHOD_SEND, current.send),
+		client.RegisterHandler(METHOD_COUNT, current.refresh),
 	)
 }
 
