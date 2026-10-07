@@ -9,8 +9,9 @@ function M.lock(buf)
 end
 
 -- Replaces lines [first, last) of the locked buf with lines. Windows whose
--- cursor was on the last line follow it; the others don't move.
-function M.set_lines(buf, first, last, lines)
+-- cursor was on the last line follow it; the others don't move. fold_from,
+-- when not 0, is the line where Go wrote a (whole) thinking block: fold it.
+function M.set_lines(buf, first, last, lines, fold_from)
   local bottom = vim.api.nvim_buf_line_count(buf)
   local followers = {}
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
@@ -26,12 +27,8 @@ function M.set_lines(buf, first, last, lines)
     error(err, 0)
   end
 
-  -- Thinking blocks arrive whole, so any in lines is complete: fold it.
-  for _, line in ipairs(lines) do
-    if line:match("^ *```+thinking") then
-      require("the-agent").fold_thinking(buf, first + 1)
-      break
-    end
+  if fold_from and fold_from > 0 then
+    require("the-agent").fold_thinking(buf, fold_from)
   end
 
   bottom = vim.api.nvim_buf_line_count(buf)

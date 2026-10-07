@@ -287,6 +287,30 @@ func render_tool_result(result message.ToolResultMessage, at time.Time, director
 	return render_block(info, strings.Join(parts, "\n")), nil
 }
 
+func ThinkingRanges(text string) [][2]int {
+	ranges := [][2]int{}
+	lines := strings.Split(text, "\n")
+	for index := 0; index < len(lines); index++ {
+		run, info, ok := fence_open(lines[index])
+		if !ok {
+			continue
+		}
+		kind, _ := parse_info(info)
+		closing := index + 1
+		for closing < len(lines) && !fence_close(lines[closing], run) {
+			closing++
+		}
+		if closing == len(lines) {
+			break
+		}
+		if kind == BLOCK_THINKING {
+			ranges = append(ranges, [2]int{index + 1, closing + 1})
+		}
+		index = closing
+	}
+	return ranges
+}
+
 func result_stamps(called string, answered string) string {
 	stamps := []string{}
 	if called != "" {

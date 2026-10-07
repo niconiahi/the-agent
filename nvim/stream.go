@@ -25,13 +25,11 @@ type stream struct {
 	last  int
 	tail  string
 
-	state sync.Mutex
-
-	pending string
-
-	lines int
-
+	state     sync.Mutex
+	pending   string
+	lines     int
 	ends_line bool
+	fold_from int
 
 	stop chan struct{}
 	done chan struct{}
@@ -81,6 +79,15 @@ func (current *stream) append(text string) {
 	current.append_locked(text)
 }
 
+func (current *stream) append_folded(text string) {
+	current.state.Lock()
+	defer current.state.Unlock()
+	if current.fold_from == 0 {
+		current.fold_from = current.lines + 1
+	}
+	current.append_locked(text)
+}
+
 func (current *stream) append_locked(text string) {
 	if text == "" {
 		return
@@ -108,15 +115,15 @@ func (current *stream) flush() error {
 	defer current.write.Unlock()
 
 	current.state.Lock()
-	pending := current.pending
-	current.pending = ""
+	pending, fold_from := current.pending, current.fold_from
+	current.pending, current.fold_from = "", 0
 	current.state.Unlock()
 	if pending == "" {
 		return nil
 	}
 
 	lines := strings.Split(current.tail+pending, "\n")
-	error := current.set_lines(current.last, current.last+1, lines)
+	error := current.set_lines(current.last, current.last+1, lines, fold_from)
 	current.last += len(lines) - 1
 	current.tail = lines[len(lines)-1]
 	return error
@@ -131,7 +138,7 @@ func (current *stream) replace(index int, line string) error {
 	if index == current.last {
 		current.tail = line
 	}
-	return current.set_lines(index, index+1, []string{line})
+	return current.set_lines(index, index+1, []string{line}, 0)
 }
 
 func (current *stream) finish() error {
@@ -141,8 +148,8 @@ func (current *stream) finish() error {
 	return errors.Join(flushed, current.client.ExecLua(`require("the-agent.stream").finish(...)`, nil, int(current.buffer)))
 }
 
-func (current *stream) set_lines(first int, last int, lines []string) error {
-	return current.client.ExecLua(`require("the-agent.stream").set_lines(...)`, nil, int(current.buffer), first, last, lines)
+func (current *stream) set_lines(first int, last int, lines []string, fold_from int) error {
+	return current.client.ExecLua(`require("the-agent.stream").set_lines(...)`, nil, int(current.buffer), first, last, lines, fold_from)
 }
 
 type reply_writer struct {
@@ -175,9 +182,9 @@ func (writer *reply_writer) handle(event orchestrator.AgentEvent) {
 		case sender.EventTextEnd:
 			writer.end_text()
 		case sender.EventThinkingEnd:
-
 			if strings.TrimSpace(update.FullText) != "" {
-				writer.block(session.ThinkingBlock(update.FullText))
+				writer.start_block()
+				writer.output.append_folded(session.ThinkingBlock(update.FullText))
 			}
 		case sender.EventToolCallEnd:
 			writer.open_turn()

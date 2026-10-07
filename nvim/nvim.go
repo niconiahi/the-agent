@@ -30,11 +30,11 @@ type Config struct {
 }
 
 const (
-	METHOD_OPEN  = "the_agent_open"
-	METHOD_SEND  = "the_agent_send"
-	METHOD_ABORT = "the_agent_abort"
-
-	METHOD_COUNT = "the_agent_count"
+	METHOD_OPEN     = "the_agent_open"
+	METHOD_SEND     = "the_agent_send"
+	METHOD_ABORT    = "the_agent_abort"
+	METHOD_COUNT    = "the_agent_count"
+	METHOD_THINKING = "the_agent_thinking"
 )
 
 func SystemPromptPath(project string) string {
@@ -64,6 +64,7 @@ func Attach(client *neovim.Nvim, config Config) error {
 		client.RegisterHandler(METHOD_SEND, current.send),
 		client.RegisterHandler(METHOD_ABORT, current.abort),
 		client.RegisterHandler(METHOD_COUNT, current.refresh),
+		client.RegisterHandler(METHOD_THINKING, thinking),
 	)
 }
 
@@ -111,4 +112,12 @@ func (current *frontend) seed_system_prompt(project string) error {
 		return error
 	}
 	return os.WriteFile(path, []byte(strings.TrimSpace(current.config.SystemPrompt)+"\n"), 0o644)
+}
+
+func thinking(client *neovim.Nvim, buffer int) ([][2]int, error) {
+	text, error := buffer_text(client, neovim.Buffer(buffer))
+	if error != nil {
+		return nil, error
+	}
+	return session.ThinkingRanges(text), nil
 }
