@@ -3,8 +3,26 @@ package session_test
 import (
 	"testing"
 
+	"github.com/niconiahi/the-agent/message"
 	"github.com/niconiahi/the-agent/session"
 )
+
+func TestEstimateTokens_CountsSystemPromptAndMessagesAtFourBytesPerToken(t *testing.T) {
+	messages := []message.Message{
+		message.UserMessage{Content: []message.Content{message.TextContent{Text: "hello world!"}}}, // 12 bytes
+		message.AssistantMessage{Content: []message.Content{message.TextContent{Text: "hi"}}},     // 2 bytes
+	}
+	// 4 + 12 + 2 = 18 bytes, rounded up to 5 tokens.
+	if got := session.EstimateTokens("abcd", messages); got != 5 {
+		t.Fatalf("want 5, got %d", got)
+	}
+}
+
+func TestEstimateTokens_EmptyIsZero(t *testing.T) {
+	if got := session.EstimateTokens("", nil); got != 0 {
+		t.Fatalf("want 0, got %d", got)
+	}
+}
 
 func TestCeiling_DefaultsTo200k(t *testing.T) {
 	if got := session.Ceiling(0, 262144); got != 200000 {

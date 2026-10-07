@@ -11,6 +11,9 @@ M.config = {
   -- An already open RPC channel to the Go side (used by tests). When nil the
   -- binary is started on first use.
   chan = nil,
+  -- Token ceiling of a session. :TASend refuses above it. nil means 200k;
+  -- it is always clamped to the model's context window.
+  ceiling = nil,
 }
 
 function M.setup(opts)

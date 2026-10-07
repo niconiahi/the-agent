@@ -54,6 +54,14 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return error
 	}
 
+	size, error := current.count(client, prompt, messages)
+	if error != nil {
+		return error
+	}
+	if size.above() {
+		return ceiling_error(size)
+	}
+
 	if !current.start(buffer) {
 		return errors.New("a turn is already running in this session")
 	}
