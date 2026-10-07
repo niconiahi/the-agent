@@ -15,7 +15,7 @@ func Replay(client *neovim.Nvim) tool.Replay {
 			return error
 		},
 		Delete: func(invocation_context context.Context, path string) error {
-			_, error := call_buffer_function(client, "delete", path, session_directory(invocation_context), sidecar_timestamp(invocation_context))
+			_, error := call_buffer_function(client, "delete", path, SessionDirectory(invocation_context), sidecar_timestamp(invocation_context))
 			return error
 		},
 	}

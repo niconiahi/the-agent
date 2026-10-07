@@ -26,7 +26,7 @@ func Read(client *neovim.Nvim) tool.Tool {
 			if error != nil {
 				return tool.ToolResult{}, error
 			}
-			read, error := call_buffer_function(client, "read", path, session_directory(invocation_context))
+			read, error := call_buffer_function(client, "read", path, SessionDirectory(invocation_context))
 			if error != nil {
 				return tool.ToolResult{}, error
 			}

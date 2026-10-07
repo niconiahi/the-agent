@@ -1,8 +1,3 @@
-// Package partialjson reads the string fields of a JSON object that is still
-// streaming: given the argument fragments received so far, it returns the
-// fields whose values are complete and the decoded prefix of the one whose
-// value is arriving. It never returns half an escape, half a surrogate pair
-// or half a UTF-8 sequence, so a prefix can always be shown as is.
 package partialjson
 
 import (
@@ -13,18 +8,11 @@ import (
 )
 
 type Fields struct {
-	// Complete holds every string field whose closing quote has arrived.
-	// Fields whose values are not strings are skipped.
-	Complete map[string]string
-	// Streaming is the key whose string value has opened but not closed,
-	// "" when no value is streaming.
+	Complete  map[string]string
 	Streaming string
-	// Partial is the decoded value of Streaming so far.
-	Partial string
+	Partial   string
 }
 
-// Read returns the fields of the top-level object in text, the
-// concatenation of every fragment received so far.
 func Read(text string) Fields {
 	fields := Fields{Complete: map[string]string{}}
 	current := &reader{text: text}
@@ -97,9 +85,6 @@ func (current *reader) space() {
 	}
 }
 
-// string reads the string starting at the opening quote. It returns what it
-// decoded and whether the closing quote arrived; when it did not, the
-// decoded text stops before any escape or character still incomplete.
 func (current *reader) string() (string, bool) {
 	current.position++
 	var decoded strings.Builder
@@ -133,8 +118,6 @@ func (current *reader) string() (string, bool) {
 
 var simple_escapes = map[byte]string{'"': `"`, '\\': `\`, '/': "/", 'b': "\b", 'f': "\f", 'n': "\n", 'r': "\r", 't': "\t"}
 
-// escape decodes the escape at the start of text, returning the text it
-// stands for and its width, or width 0 when the escape is still incomplete.
 func escape(text string) (string, int) {
 	if len(text) < 2 {
 		return "", 0
@@ -185,8 +168,6 @@ func hex(text string) (rune, bool) {
 	return rune(value), true
 }
 
-// skip passes over a value that is not a string, reporting whether all of
-// it has arrived.
 func (current *reader) skip() bool {
 	depth := 0
 	for !current.ended() {

@@ -39,8 +39,6 @@ type Agent struct {
 
 var unnamed_agents atomic.Int64
 
-// WithID names the agent. Every event it emits carries this ID. Without it
-// the agent gets a unique "agent-N".
 func WithID(id string) AgentOption {
 	return func(agent *Agent) {
 		agent.id = id
@@ -182,7 +180,6 @@ func (agent *Agent) PromptText(invocation_context context.Context, text string) 
 	})
 }
 
-// ID is the agent's identity, carried by every event it emits.
 func (agent *Agent) ID() string {
 	return agent.id
 }
