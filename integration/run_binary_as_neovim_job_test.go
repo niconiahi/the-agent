@@ -43,19 +43,11 @@ func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 	binary := build_binary(t)
 	harness.Setup(`{ bin = ... }`, binary)
 
-	harness.Command("TA foo")
-	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); !new_session(got) {
-		t.Fatalf("session not created by the binary: %q", got)
+	if error := harness.CommandError("TA foo"); error == nil || !strings.Contains(error.Error(), "sudo the-agent setup") {
+		t.Fatalf("in a project _the-agent cannot read, :TA must name sudo the-agent setup, got %v", error)
 	}
-
-	other := filepath.Join(harness.Dir, "elsewhere")
-	if error := os.Mkdir(other, 0o755); error != nil {
-		t.Fatal(error)
-	}
-	harness.Command("cd " + other)
-	harness.Command("TA bar")
-	if got, want := harness.BufferName(), filepath.Join(harness.Dir, ".the-agent", "sessions", "bar", "session.md"); got != want {
-		t.Fatalf("after :cd the session must stay in the binary's project %q, got %q", want, got)
+	if _, error := os.Stat(filepath.Join(harness.Dir, ".the-agent")); !errors.Is(error, os.ErrNotExist) {
+		t.Fatalf("the refused :TA created .the-agent: %v", error)
 	}
 
 	var pid int
@@ -81,5 +73,28 @@ func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 			t.Fatalf("the-agent (pid %d) outlived its Neovim", pid)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestNvimMode_OpensSessionsInASetUpProject(t *testing.T) {
+	project := sandbox_project(t)
+	harness := nvimtest.LaunchIn(t, project)
+
+	binary := build_binary(t)
+	harness.Setup(`{ bin = ... }`, binary)
+
+	harness.Command("TA foo")
+	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); !new_session(got) {
+		t.Fatalf("session not created by the binary: %q", got)
+	}
+
+	other := filepath.Join(harness.Dir, "elsewhere")
+	if error := os.Mkdir(other, 0o755); error != nil {
+		t.Fatal(error)
+	}
+	harness.Command("cd " + other)
+	harness.Command("TA bar")
+	if got, want := harness.BufferName(), filepath.Join(harness.Dir, ".the-agent", "sessions", "bar", "session.md"); got != want {
+		t.Fatalf("after :cd the session must stay in the binary's project %q, got %q", want, got)
 	}
 }

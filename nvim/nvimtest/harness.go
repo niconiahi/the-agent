@@ -35,7 +35,12 @@ func Start(t *testing.T, config nvim.Config) *Harness {
 
 func StartWithTools(t *testing.T, config nvim.Config, build func(*neovim.Nvim) []tool.Tool) *Harness {
 	t.Helper()
-	harness := Launch(t)
+	var harness *Harness
+	if config.Project == "" {
+		harness = Launch(t)
+	} else {
+		harness = LaunchIn(t, config.Project)
+	}
 	if build != nil {
 		config.Tools = append(append([]tool.Tool{}, config.Tools...), build(harness.Nvim)...)
 	}
@@ -51,13 +56,17 @@ func StartWithTools(t *testing.T, config nvim.Config, build func(*neovim.Nvim) [
 
 func Launch(t *testing.T) *Harness {
 	t.Helper()
-	if _, error := exec.LookPath("nvim"); error != nil {
-		t.Skip("nvim is not on PATH")
-	}
-
 	directory, error := filepath.EvalSymlinks(t.TempDir())
 	if error != nil {
 		t.Fatal(error)
+	}
+	return LaunchIn(t, directory)
+}
+
+func LaunchIn(t *testing.T, directory string) *Harness {
+	t.Helper()
+	if _, error := exec.LookPath("nvim"); error != nil {
+		t.Skip("nvim is not on PATH")
 	}
 
 	client, error := neovim.NewChildProcess(

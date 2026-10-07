@@ -1,6 +1,6 @@
 # vimtool
 
-The file tools of the `--nvim` binary, backed by Neovim buffers instead of `os.WriteFile`. When the agent changes a file, the change lands in the buffer I may be looking at, one `u` takes it back, the LSP sees it as an ordinary buffer change, and it is saved at once so `bash`, `grep` and builds read it from disk too. `find`, `ls` and `bash` stay in `tool`; `Grep` here wraps `tool`'s grep and fills the quickfix list with its hits (see `tool.md`).
+The file tools of the `--nvim` binary, backed by Neovim buffers instead of `os.WriteFile`. When the agent changes a file, the change lands in the buffer I may be looking at, one `u` takes it back, the LSP sees it as an ordinary buffer change, and it is saved at once so `bash_read`, `grep` and builds read it from disk too. `find`, `ls` and `bash_read` stay in `tool`; `Grep` here wraps `tool`'s grep and fills the quickfix list with its hits (see `tool.md`).
 
 Each tool is built with the Neovim client it talks to (`Read(client)`, `Edit(client)`, `Write(client)`, `Filter(client)`, `Grep(client)`), so `cmd/agent` builds them after it connects and tests bind them to the harness with `nvimtest.StartWithTools`. The logic runs in Lua, `lua/the-agent/buffer.lua`, one function per tool step, so each step is a single RPC request (`call_buffer_function` in `vimtool.go`). Everything one request changes is one undo block, which is what makes an agent edit exactly one `u`.
 
