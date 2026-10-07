@@ -54,8 +54,6 @@ func TestTASend_BatchesDeltasInsteadOfOneEditPerDelta(t *testing.T) {
 		return strings.Contains(on_disk(harness), strings.Repeat("x", 100))
 	})
 
-	// Every buffer edit bumps b:changedtick. One edit per delta would be
-	// over 100; batching every ~40ms over ~200ms of streaming is a handful.
 	if edits := changedtick(harness) - before; edits > 25 {
 		t.Fatalf("100 deltas took %d buffer edits", edits)
 	}
@@ -76,7 +74,7 @@ func TestTASend_LocksTheSessionDuringTheTurn(t *testing.T) {
 	if modifiable(harness) {
 		t.Fatal("the session became modifiable while streaming")
 	}
-	// Reading and moving still work.
+
 	harness.Command("normal! gg")
 	harness.Command("normal! G")
 
@@ -121,8 +119,6 @@ func TestTASend_LeavesTheViewAloneWhenTheCursorIsElsewhere(t *testing.T) {
 	}
 }
 
-// wait_turn_end waits until the reply's last word is saved after a fresh
-// "## user" heading and the buffer is unlocked.
 func wait_turn_end(harness *nvimtest.Harness, last_word string) {
 	harness.T.Helper()
 	harness.WaitFor("the turn to end", func() bool {
@@ -130,8 +126,6 @@ func wait_turn_end(harness *nvimtest.Harness, last_word string) {
 	})
 }
 
-// on_disk is the session file, or "" while :write has it renamed away
-// (Neovim's writebackup), so it can be polled.
 func on_disk(harness *nvimtest.Harness) string {
 	contents, _ := os.ReadFile(filepath.Join(harness.Dir, SESSION))
 	return string(contents)
@@ -189,7 +183,6 @@ func TestTAAbort_StopsTheTurnKeepsTheTextAndUnlocks(t *testing.T) {
 		t.Fatalf("disk\nwant %q\ngot  %q", want, got)
 	}
 
-	// The session can be continued.
 	harness.SetText(want + "go on\n")
 	if error := harness.CommandError("TASend"); error != nil {
 		t.Fatalf("send after abort: %v", error)

@@ -13,10 +13,8 @@ import (
 	"github.com/niconiahi/the-agent/sender"
 )
 
-// FAKE_API is the provider-registry key of the fake provider and Model.
 const FAKE_API = "nvimtest-fake"
 
-// Model is a model served by the fake provider.
 func Model() *model.Model {
 	return &model.Model{
 		ID:            "fake-model",
@@ -28,7 +26,6 @@ func Model() *model.Model {
 	}
 }
 
-// Config is an nvim.Config wired to the fake Model, with no tools.
 func Config() nvim.Config {
 	return nvim.Config{
 		Model:        Model(),
@@ -36,36 +33,27 @@ func Config() nvim.Config {
 	}
 }
 
-// Reply is one scripted assistant response, streamed in content order:
-// thinking as one EventThinkingDelta per entry in Thinking, text as one
-// EventTextDelta per entry in Deltas, then each tool call as
-// EventToolCallStart/Delta/End. Delay is slept before every delta.
 type Reply struct {
 	Thinking    []string
 	Deltas      []string
 	ToolCalls   []message.ToolCall
 	Delay       time.Duration
 	TotalTokens int
-	// StopReason defaults to stop. Use error to simulate a failed request.
+
 	StopReason   message.StopReason
 	ErrorMessage string
 }
 
-// Text is a reply that streams text as a single delta.
 func Text(text string, total_tokens int) Reply {
 	return Reply{Deltas: []string{text}, TotalTokens: total_tokens}
 }
 
-// Provider is the registered fake. It records every request it receives.
 type Provider struct {
 	mutex    sync.Mutex
 	replies  []Reply
 	requests []sender.LLMContext
 }
 
-// RegisterProvider registers a fake provider under FAKE_API that answers
-// requests with replies, in order. The provider registry is a global map, so
-// tests using it must not run in parallel.
 func RegisterProvider(t *testing.T, replies ...Reply) *Provider {
 	provider := &Provider{replies: replies}
 	sender.RegisterProvider(&sender.Provider{API: FAKE_API, StreamFunction: provider.stream})
@@ -75,14 +63,13 @@ func RegisterProvider(t *testing.T, replies ...Reply) *Provider {
 	return provider
 }
 
-// Requests returns copies of the contexts the provider was called with.
 func (provider *Provider) Requests() []sender.LLMContext {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	return append([]sender.LLMContext(nil), provider.requests...)
 }
 
-func (provider *Provider) stream(ctx context.Context, target *model.Model, llm_context *sender.LLMContext, _ *sender.StreamOptions) *sender.EventStream {
+func (provider *Provider) stream(invocation_context context.Context, target *model.Model, llm_context *sender.LLMContext, _ *sender.StreamOptions) *sender.EventStream {
 	provider.mutex.Lock()
 	provider.requests = append(provider.requests, sender.LLMContext{
 		SystemPrompt: llm_context.SystemPrompt,
@@ -107,10 +94,9 @@ func (provider *Provider) stream(ctx context.Context, target *model.Model, llm_c
 		}
 		stream.Push(sender.EventStart{Message: output})
 
-		// wait sleeps Delay, or reports an abort when ctx is cancelled first.
 		wait := func() bool {
 			select {
-			case <-ctx.Done():
+			case <-invocation_context.Done():
 				aborted := &message.AssistantMessage{StopReason: message.STOP_REASON_ABORTED, Timestamp: time.Now()}
 				stream.Push(sender.EventError{StopReason: message.STOP_REASON_ABORTED, Message: aborted})
 				return false

@@ -1,9 +1,3 @@
-// Package nvim is the Neovim frontend: it answers the Lua plugin's RPC
-// requests and turns agent runs into edits of session.md buffers.
-//
-// Attach registers the handlers on any go-client connection. `the-agent
-// --nvim` attaches to its stdio (Neovim started it with jobstart rpc=true);
-// tests attach to an embedded Neovim through nvimtest.
 package nvim
 
 import (
@@ -24,31 +18,26 @@ import (
 
 type Config struct {
 	Model *model.Model
-	// SystemPrompt seeds .the-agent/system_prompt.md when :TA finds none.
-	// What is sent is that file, through the link at the top of the session.
+
 	SystemPrompt  string
 	Tools         []tool.Tool
 	StreamOptions *sender.StreamOptions
-	// Ready, when set, is checked before every send; its error is shown
-	// instead of sending (e.g. a missing API key).
+
 	Ready func() error
-	// Now defaults to time.Now.
+
 	Now func() time.Time
 }
 
-// RPC method names the Lua plugin calls with vim.rpcrequest.
 const (
 	METHOD_OPEN  = "the_agent_open"
 	METHOD_SEND  = "the_agent_send"
 	METHOD_ABORT = "the_agent_abort"
-	// METHOD_COUNT is sent as a notification; it updates b:the_agent_tokens.
+
 	METHOD_COUNT = "the_agent_count"
 )
 
-// NEW_SESSION is the contents of a freshly created session.md.
 const NEW_SESSION = session.SYSTEM_PROMPT_LINK + "\n\n## user\n\n"
 
-// SystemPromptPath is the system prompt every session in project links to.
 func SystemPromptPath(project string) string {
 	return filepath.Join(project, ".the-agent", "system_prompt.md")
 }
@@ -56,7 +45,7 @@ func SystemPromptPath(project string) string {
 type frontend struct {
 	config  Config
 	mutex   sync.Mutex
-	running map[int]*turn // by buffer
+	running map[int]*turn
 }
 
 func Attach(client *neovim.Nvim, config Config) error {
@@ -72,7 +61,6 @@ func Attach(client *neovim.Nvim, config Config) error {
 	)
 }
 
-// SessionPath is where the session called name lives under project.
 func SessionPath(project string, name string) string {
 	return filepath.Join(project, ".the-agent", "sessions", strings.ReplaceAll(name, "/", "-"), "session.md")
 }
@@ -111,8 +99,6 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 	return client.Command("edit " + escaped)
 }
 
-// seed_system_prompt writes the configured system prompt to
-// .the-agent/system_prompt.md unless that file already exists.
 func (current *frontend) seed_system_prompt(project string) error {
 	path := SystemPromptPath(project)
 	if _, error := os.Stat(path); !errors.Is(error, os.ErrNotExist) {

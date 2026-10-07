@@ -13,11 +13,8 @@ import (
 	"github.com/niconiahi/the-agent/session"
 )
 
-const LOG_LEVEL_ERROR = 4 // vim.log.levels.ERROR
+const LOG_LEVEL_ERROR = 4
 
-// send parses the buffer, stamps the last user heading and starts the turn.
-// It returns as soon as the turn is started; the reply is appended to the
-// buffer and saved when the turn ends.
 func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	if current.config.Ready != nil {
 		if error := current.config.Ready(); error != nil {
@@ -45,15 +42,15 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
 	}
 
-	dir, error := session_dir(client, handle)
+	directory, error := session_dir(client, handle)
 	if error != nil {
 		return error
 	}
-	prompt, error := system_prompt(parsed, dir)
+	prompt, error := system_prompt(parsed, directory)
 	if error != nil {
 		return error
 	}
-	if messages, error = session.LoadImages(messages, dir); error != nil {
+	if messages, error = session.LoadImages(messages, directory); error != nil {
 		return error
 	}
 	last = messages[len(messages)-1].(message.UserMessage)
@@ -77,8 +74,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		current.finish(buffer)
 		return error
 	}
-	// messages already leave out orphaned tool blocks; they leave the file
-	// once the turn ends (see repair_buffer).
+
 	parsed.Repair()
 	repaired := parsed.Render()
 
@@ -92,7 +88,6 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
 		error := current.run(running.context, prompt, messages[:len(messages)-1], last, replies.handle)
 		if running.context.Err() != nil {
-			// Aborted with :TAAbort: what streamed so far stays, no error.
 			error = nil
 		}
 		error = errors.Join(error, replies.failure)
@@ -114,27 +109,22 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	return nil
 }
 
-// run sends history plus last to the model under the system prompt, passing
-// every agent event to listener, and returns when the turn chain ends or ctx
-// is cancelled.
-func (current *frontend) run(ctx context.Context, prompt string, history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
+func (current *frontend) run(invocation_context context.Context, prompt string, history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
 		orchestrator.WithSystemPrompt(prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
-		// The agent only holds this send's messages; the rest of the session
-		// is prepended on every request.
+
 		orchestrator.WithTransformContext(func(_ context.Context, messages []message.Message) []message.Message {
 			return append(append([]message.Message{}, history...), messages...)
 		}),
 	)
 
 	agent.Subscribe(listener)
-	return agent.Prompt(ctx, last)
+	return agent.Prompt(invocation_context, last)
 }
 
-// buffer_text is the buffer as it would be written to disk.
 func buffer_text(client *neovim.Nvim, buffer neovim.Buffer) (string, error) {
 	lines, error := client.BufferLines(buffer, 0, -1, true)
 	if error != nil {
@@ -155,9 +145,6 @@ func to_lines(text string) [][]byte {
 	return lines
 }
 
-// replace_changed_line writes the single line that differs between before
-// and after (they have the same number of lines), leaving the rest of the
-// buffer, its cursor and its undo history alone.
 func replace_changed_line(client *neovim.Nvim, buffer neovim.Buffer, before string, after string) error {
 	if before == after {
 		return nil

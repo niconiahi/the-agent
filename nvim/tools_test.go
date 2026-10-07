@@ -11,7 +11,6 @@ import (
 	"github.com/niconiahi/the-agent/tool"
 )
 
-// read_tool answers every call with the file's fake contents.
 func read_tool() tool.Tool {
 	return tool.NewTool("read", "read a file", json.RawMessage(`{"type":"object"}`),
 		func(_ context.Context, _ string, arguments map[string]any) (tool.ToolResult, error) {
@@ -44,7 +43,6 @@ func TestTA_FoldsThinkingClosedAndDapRemovesIt(t *testing.T) {
 
 	harness.Command("TA foo")
 
-	// TOOL_TURN: the thinking block is lines 7-9, the tool_call 11-13.
 	for line := 7; line <= 9; line++ {
 		if got := fold_start(t, harness, line); got != 7 {
 			t.Errorf("line %d: want inside a closed fold starting at 7, got %d", line, got)
@@ -104,7 +102,6 @@ func TestTASend_ToolTurnWritesThinkingCallResultAndAnswer(t *testing.T) {
 		t.Errorf("the new thinking block must be folded closed, got fold at %d", got)
 	}
 
-	// The next send reads the whole tool exchange back from the file.
 	harness.SetText(harness.Text() + "thanks\n")
 	harness.Command("TASend")
 	harness.WaitFor("third reply", func() bool { return strings.Contains(harness.Text(), "you're welcome") })

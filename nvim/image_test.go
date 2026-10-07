@@ -10,7 +10,6 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
-// A 1x1 transparent PNG.
 const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 
 func TestTASend_SendsReferencedSiblingImage(t *testing.T) {

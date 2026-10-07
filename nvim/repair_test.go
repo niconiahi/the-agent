@@ -53,8 +53,6 @@ func TestTASend_DeletedToolResultRemovesItsCallFromRequestAndFile(t *testing.T) 
 }
 
 func TestTASend_DeletedToolCallRemovesItsResultAndUndoBringsItBack(t *testing.T) {
-	// Several flushes, each its own undo step: the repair must still be the
-	// one u undoes.
 	provider := nvimtest.RegisterProvider(t, nvimtest.Reply{
 		Deltas:      []string{"you're ", "very ", "welcome"},
 		Delay:       3 * nvim.FLUSH_INTERVAL,

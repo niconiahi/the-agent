@@ -20,8 +20,6 @@ func TestTASend_RefusesAboveCeilingAndReportsCount(t *testing.T) {
 	harness.SetText(unsent)
 	error := harness.CommandError("TASend")
 
-	// "You are a test agent." (21 bytes) + "2026-10-06T14:32:00Z\n\nhello" (27)
-	// = 48 bytes = 12 tokens.
 	if error == nil || !strings.Contains(error.Error(), "12 tokens") || !strings.Contains(error.Error(), "ceiling of 5") {
 		t.Fatalf("want a refusal with the count and the ceiling, got %v", error)
 	}

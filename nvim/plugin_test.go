@@ -8,13 +8,11 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
-// normal runs keys as typed in normal mode, with <Plug>/<leader> notation.
 func normal(harness *nvimtest.Harness, keys string) {
 	harness.T.Helper()
 	harness.Command(`execute "normal \` + keys + `"`)
 }
 
-// mapping is the rhs of a normal-mode mapping ("" when unmapped).
 func mapping(harness *nvimtest.Harness, lhs string) string {
 	harness.T.Helper()
 	var rhs string
@@ -41,7 +39,7 @@ func TestDefaultKeys_SendWithLeaderAS(t *testing.T) {
 
 	harness.Command("TA foo")
 	harness.SetText("## user\n\nhello\n")
-	normal(harness, `\as`) // <leader> is \ by default
+	normal(harness, `\as`)
 
 	wait_turn_end(harness, "there")
 }
@@ -131,11 +129,8 @@ func TestTA_ConfiguredNameCanMakeTheArgumentOptional(t *testing.T) {
 	}
 }
 
-// failed_turn sends a turn the fake provider fails, and returns the
-// notifications recorded by the Lua function installed as `recorder` (a
-// Lua assignment target such as "vim.notify").
 func failed_turn(t *testing.T, recorder string) []string {
-	nvimtest.RegisterProvider(t) // no scripted reply: the turn errors
+	nvimtest.RegisterProvider(t)
 	harness := nvimtest.Start(t, nvimtest.Config())
 	harness.Command(`lua _G.notes = {}`)
 	harness.Command(`lua ` + recorder + ` = function(msg, a, b)

@@ -14,8 +14,6 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
-// The plugin starts the real binary with jobstart; it works in Neovim's
-// working directory and exits when that Neovim does.
 func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 	harness := nvimtest.Launch(t)
 

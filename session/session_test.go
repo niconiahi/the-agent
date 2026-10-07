@@ -102,7 +102,7 @@ func TestAppend_RendersAssistantHeadingAndNextUserHeading(t *testing.T) {
 	if error != nil {
 		t.Fatalf("parse: %v", error)
 	}
-	parsed.AppendAssistant("kimi-k2.5", mustTime(t, "2026-10-06T14:33:05Z"), 1240, "hello there")
+	parsed.AppendAssistant("kimi-k2.5", must_time(t, "2026-10-06T14:33:05Z"), 1240, "hello there")
 	parsed.AppendUser()
 
 	want := "## user · 2026-10-06T14:32:00Z\n\nhi\n\n" +
@@ -115,13 +115,13 @@ func TestAppend_RendersAssistantHeadingAndNextUserHeading(t *testing.T) {
 
 func TestStampLastUser_AddsTimestampOnlyToBareHeading(t *testing.T) {
 	parsed, _ := session.Parse("## user\n\nhi\n")
-	if !parsed.StampLastUser(mustTime(t, "2026-10-06T14:32:00Z")) {
+	if !parsed.StampLastUser(must_time(t, "2026-10-06T14:32:00Z")) {
 		t.Fatal("expected bare heading to be stamped")
 	}
 	if got, want := parsed.Render(), "## user · 2026-10-06T14:32:00Z\n\nhi\n"; got != want {
 		t.Fatalf("want %q got %q", want, got)
 	}
-	if parsed.StampLastUser(mustTime(t, "2026-10-06T15:00:00Z")) {
+	if parsed.StampLastUser(must_time(t, "2026-10-06T15:00:00Z")) {
 		t.Fatal("an already stamped heading must not change")
 	}
 }
@@ -151,7 +151,7 @@ func only_text(t *testing.T, content []message.Content) string {
 	return text.Text
 }
 
-func mustTime(t *testing.T, value string) time.Time {
+func must_time(t *testing.T, value string) time.Time {
 	t.Helper()
 	parsed, error := time.Parse(time.RFC3339, value)
 	if error != nil {
@@ -168,7 +168,7 @@ func TestParse_RejectsToolCallWhoseArgumentsAreNotJSON(t *testing.T) {
 }
 
 func TestAppend_RendersThinkingToolCallsAndResultsThatParseBack(t *testing.T) {
-	at := mustTime(t, "2026-10-06T14:33:00Z")
+	at := must_time(t, "2026-10-06T14:33:00Z")
 	parsed, _ := session.Parse("## user · 2026-10-06T14:32:00Z\n\nfix it\n")
 
 	error := parsed.AppendAssistantMessage("kimi-k2.5", at, message.AssistantMessage{

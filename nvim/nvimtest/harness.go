@@ -1,11 +1,3 @@
-// Package nvimtest is the end-to-end test harness for the Neovim frontend.
-//
-// Start launches `nvim --embed --headless --clean` in a temp project
-// directory with this repository on the runtimepath (so plugin/ and lua/ are
-// loaded exactly as a user would get them), attaches the nvim package to that
-// Neovim in-process, and points the Lua plugin at the test's RPC channel.
-// Because the Go side runs in the test process, a fake provider registered
-// with RegisterProvider is what :TASend talks to.
 package nvimtest
 
 import (
@@ -24,23 +16,17 @@ import (
 
 type Harness struct {
 	T *testing.T
-	// Nvim is the RPC client of the embedded Neovim, for anything the helpers
-	// below don't cover.
+
 	Nvim *neovim.Nvim
-	// Dir is the project directory and Neovim's working directory, with
-	// symlinks resolved (on macOS t.TempDir() lives under a /var symlink).
+
 	Dir string
 }
 
-// RepoRoot is the root of this repository, which is also the plugin's root.
 func RepoRoot() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-// Start launches a headless Neovim with the plugin loaded and the Go side
-// attached in-process with config. It skips the test when nvim is not
-// installed.
 func Start(t *testing.T, config nvim.Config) *Harness {
 	t.Helper()
 	harness := Launch(t)
@@ -51,16 +37,13 @@ func Start(t *testing.T, config nvim.Config) *Harness {
 	return harness
 }
 
-// Launch starts a headless Neovim with the plugin on the runtimepath but
-// does not attach the Go side or configure the plugin. Use it with Setup to
-// drive a real `the-agent --nvim` binary.
 func Launch(t *testing.T) *Harness {
 	t.Helper()
 	if _, error := exec.LookPath("nvim"); error != nil {
 		t.Skip("nvim is not on PATH")
 	}
 
-	dir, error := filepath.EvalSymlinks(t.TempDir())
+	directory, error := filepath.EvalSymlinks(t.TempDir())
 	if error != nil {
 		t.Fatal(error)
 	}
@@ -68,7 +51,7 @@ func Launch(t *testing.T) *Harness {
 	client, error := neovim.NewChildProcess(
 		neovim.ChildProcessArgs("--embed", "--headless", "--clean", "-n",
 			"--cmd", "set rtp^="+RepoRoot()),
-		neovim.ChildProcessDir(dir),
+		neovim.ChildProcessDir(directory),
 		neovim.ChildProcessLogf(t.Logf),
 	)
 	if error != nil {
@@ -76,11 +59,9 @@ func Launch(t *testing.T) *Harness {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	return &Harness{T: t, Nvim: client, Dir: dir}
+	return &Harness{T: t, Nvim: client, Dir: directory}
 }
 
-// Setup calls require("the-agent").setup(<options>), where options is a Lua
-// table expression that can refer to args as `...`.
 func (harness *Harness) Setup(options string, args ...any) {
 	harness.T.Helper()
 	if error := harness.Nvim.ExecLua(`require("the-agent").setup(`+options+`)`, nil, args...); error != nil {
@@ -88,7 +69,6 @@ func (harness *Harness) Setup(options string, args ...any) {
 	}
 }
 
-// Command runs an Ex command and fails the test if it errors.
 func (harness *Harness) Command(command string) {
 	harness.T.Helper()
 	if error := harness.Nvim.Command(command); error != nil {
@@ -96,12 +76,10 @@ func (harness *Harness) Command(command string) {
 	}
 }
 
-// CommandError runs an Ex command and returns its error.
 func (harness *Harness) CommandError(command string) error {
 	return harness.Nvim.Command(command)
 }
 
-// BufferName is the full path of the current buffer.
 func (harness *Harness) BufferName() string {
 	harness.T.Helper()
 	buffer, error := harness.Nvim.CurrentBuffer()
@@ -115,7 +93,6 @@ func (harness *Harness) BufferName() string {
 	return name
 }
 
-// Text is the current buffer as it would be written to disk.
 func (harness *Harness) Text() string {
 	harness.T.Helper()
 	buffer, error := harness.Nvim.CurrentBuffer()
@@ -133,7 +110,6 @@ func (harness *Harness) Text() string {
 	return strings.Join(joined, "\n") + "\n"
 }
 
-// SetText replaces the current buffer's contents with text.
 func (harness *Harness) SetText(text string) {
 	harness.T.Helper()
 	buffer, error := harness.Nvim.CurrentBuffer()
@@ -149,7 +125,6 @@ func (harness *Harness) SetText(text string) {
 	}
 }
 
-// WriteFile writes a file relative to the project directory.
 func (harness *Harness) WriteFile(relative string, contents string) {
 	harness.T.Helper()
 	path := filepath.Join(harness.Dir, relative)
@@ -161,7 +136,6 @@ func (harness *Harness) WriteFile(relative string, contents string) {
 	}
 }
 
-// ReadFile reads a file relative to the project directory.
 func (harness *Harness) ReadFile(relative string) string {
 	harness.T.Helper()
 	contents, error := os.ReadFile(filepath.Join(harness.Dir, relative))
@@ -171,7 +145,6 @@ func (harness *Harness) ReadFile(relative string) string {
 	return string(contents)
 }
 
-// WaitFor polls condition until it holds, failing the test after 5s.
 func (harness *Harness) WaitFor(description string, condition func() bool) {
 	harness.T.Helper()
 	deadline := time.Now().Add(5 * time.Second)

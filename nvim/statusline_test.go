@@ -15,7 +15,6 @@ type statusline struct {
 	} `msgpack:"highlights"`
 }
 
-// render draws the current window's statusline the way Neovim would.
 func render(harness *nvimtest.Harness) statusline {
 	harness.T.Helper()
 	var drawn statusline
@@ -43,8 +42,6 @@ func TestStatusline_ShowsCountAgainstCeiling(t *testing.T) {
 
 	harness.Command("TA foo")
 
-	// A new session costs its system prompt: "You are a test agent." is 21
-	// bytes, 6 tokens.
 	harness.WaitFor("the count", func() bool { return strings.Contains(render(harness).Text, "6 / 200,000 tokens") })
 	if render(harness).red() {
 		t.Fatal("far from the ceiling the count must not be red")
@@ -58,9 +55,6 @@ func TestStatusline_FollowsEdits(t *testing.T) {
 	harness.SetText(harness.Text() + strings.Repeat("x", 400) + "\n")
 	harness.Command("doautocmd TextChanged")
 
-	// What :TASend would send: the 21-byte system prompt, then the 400 bytes
-	// under a timestamp ("2026-10-06T14:32:00Z\n\n", 22 bytes) = 443 bytes =
-	// 111 tokens.
 	harness.WaitFor("the new count", func() bool { return strings.Contains(render(harness).Text, "111 / 200,000 tokens") })
 }
 
@@ -102,7 +96,7 @@ func TestStatusline_UpdatesAfterReply(t *testing.T) {
 		}
 		fields := strings.Fields(text[:index])
 		count := strings.ReplaceAll(fields[len(fields)-1], ",", "")
-		return len(count) >= 4 // above 1,000 tokens
+		return len(count) >= 4
 	})
 }
 

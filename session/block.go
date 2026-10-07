@@ -10,24 +10,18 @@ import (
 	"github.com/niconiahi/the-agent/message"
 )
 
-// Fenced blocks an assistant turn can hold besides text. Their data lives in
-// the info string, e.g. "tool_call id=tc_3 name=edit ts=2026-10-06T14:33:00Z".
 const (
 	BLOCK_THINKING    = "thinking"
 	BLOCK_TOOL_CALL   = "tool_call"
 	BLOCK_TOOL_RESULT = "tool_result"
 )
 
-// segment is a piece of an assistant turn's body: either free text (kind "")
-// or one of the fenced blocks above.
 type segment struct {
 	kind  string
 	attrs map[string]string
 	text  string
 }
 
-// fence_open reports whether line opens a fenced code block, returning the
-// length of its backtick run and its info string.
 func fence_open(line string) (int, string, bool) {
 	trimmed := strings.TrimLeft(line, " ")
 	run := len(trimmed) - len(strings.TrimLeft(trimmed, "`"))
@@ -37,13 +31,11 @@ func fence_open(line string) (int, string, bool) {
 	return run, strings.TrimSpace(trimmed[run:]), true
 }
 
-// fence_close reports whether line closes a block opened with run backticks.
 func fence_close(line string, run int) bool {
 	trimmed := strings.TrimSpace(line)
 	return len(trimmed) >= run && strings.Trim(trimmed, "`") == ""
 }
 
-// split_lines splits text into lines, each keeping its "\n".
 func split_lines(text string) []string {
 	lines := strings.SplitAfter(text, "\n")
 	if lines[len(lines)-1] == "" {
@@ -66,8 +58,6 @@ func parse_info(info string) (string, map[string]string) {
 	return fields[0], attrs
 }
 
-// segments splits an assistant turn's body into text and blocks. Fences that
-// aren't one of ours (```go …) stay part of the text.
 func segments(body string) []segment {
 	result := []segment{}
 	text := ""
@@ -97,17 +87,12 @@ func segments(body string) []segment {
 	return append(result, segment{text: text})
 }
 
-// repair removes from an assistant turn's body every tool_call without a
-// later tool_result of the same id, and every tool_result without an
-// earlier tool_call, together with the blank line that separated each from
-// what followed. Providers reject a request with a broken pair. Thinking is
-// never touched.
 func repair(body string) string {
 	type block struct {
 		kind  string
 		id    string
 		start int
-		end   int // last line, inclusive
+		end   int
 	}
 	blocks := []block{}
 	lines := split_lines(body)
@@ -162,10 +147,6 @@ func repair(body string) string {
 	return builder.String()
 }
 
-// assistant_messages turns an assistant turn into the messages it stands
-// for: an assistant message per run of text, thinking and tool calls, and a
-// tool result message per tool_result block. info (the heading after the
-// role) is prepended to the first assistant message's text.
 func assistant_messages(info string, body string) ([]message.Message, error) {
 	messages := []message.Message{}
 	tool_names := map[string]string{}
@@ -230,8 +211,6 @@ func assistant_messages(info string, body string) ([]message.Message, error) {
 	return messages, nil
 }
 
-// prepend_info puts info in front of the first assistant message's first
-// text, or as its first text when it has none.
 func prepend_info(messages []message.Message, info string) {
 	for index, value := range messages {
 		assistant, ok := value.(message.AssistantMessage)
@@ -254,8 +233,6 @@ func prepend_info(messages []message.Message, info string) {
 	}
 }
 
-// render_block writes a fenced block whose fence is longer than any run of
-// backticks in body, so the body can't close it early.
 func render_block(info string, body string) string {
 	run := 3
 	for _, field := range strings.FieldsFunc(body, func(r rune) bool { return r != '`' }) {

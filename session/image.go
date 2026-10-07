@@ -14,9 +14,6 @@ import (
 	"github.com/niconiahi/the-agent/message"
 )
 
-// Images live in files next to session.md and the session refers to them by
-// relative path, ![alt](name.png); base64 never enters the file.
-
 var image_extensions = map[string]string{
 	".png":  "image/png",
 	".jpg":  "image/jpeg",
@@ -27,9 +24,7 @@ var image_extensions = map[string]string{
 
 var image_pattern = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)\)`)
 
-// SaveImage writes image to a file in dir named after its contents and
-// returns the markdown reference to put in the session.
-func SaveImage(dir string, image message.ImageContent) (string, error) {
+func SaveImage(directory string, image message.ImageContent) (string, error) {
 	data, error := base64.StdEncoding.DecodeString(image.Data)
 	if error != nil {
 		return "", fmt.Errorf("image: %w", error)
@@ -45,27 +40,22 @@ func SaveImage(dir string, image message.ImageContent) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	name := "image-" + hex.EncodeToString(sum[:6]) + extension
-	if error := os.WriteFile(filepath.Join(dir, name), data, 0o644); error != nil {
+	if error := os.WriteFile(filepath.Join(directory, name), data, 0o644); error != nil {
 		return "", error
 	}
 	return "![](" + name + ")", nil
 }
 
-// LoadImages returns messages with every relative image reference in a user
-// or tool result message followed by the image it points to, read from dir.
-// The reference text stays, so the model sees which file it is looking at.
-// References inside fenced blocks, remote URLs and absolute paths are left
-// alone; a referenced file that is missing is an error.
-func LoadImages(messages []message.Message, dir string) ([]message.Message, error) {
+func LoadImages(messages []message.Message, directory string) ([]message.Message, error) {
 	loaded := make([]message.Message, len(messages))
 	for index, current := range messages {
 		var error error
 		switch typed := current.(type) {
 		case message.UserMessage:
-			typed.Content, error = load_content(typed.Content, dir)
+			typed.Content, error = load_content(typed.Content, directory)
 			loaded[index] = typed
 		case message.ToolResultMessage:
-			typed.Content, error = load_content(typed.Content, dir)
+			typed.Content, error = load_content(typed.Content, directory)
 			loaded[index] = typed
 		default:
 			loaded[index] = current
@@ -77,7 +67,7 @@ func LoadImages(messages []message.Message, dir string) ([]message.Message, erro
 	return loaded, nil
 }
 
-func load_content(contents []message.Content, dir string) ([]message.Content, error) {
+func load_content(contents []message.Content, directory string) ([]message.Content, error) {
 	loaded := []message.Content{}
 	for _, content := range contents {
 		text, ok := content.(message.TextContent)
@@ -85,7 +75,7 @@ func load_content(contents []message.Content, dir string) ([]message.Content, er
 			loaded = append(loaded, content)
 			continue
 		}
-		split, error := split_images(text.Text, dir)
+		split, error := split_images(text.Text, directory)
 		if error != nil {
 			return nil, error
 		}
@@ -94,12 +84,11 @@ func load_content(contents []message.Content, dir string) ([]message.Content, er
 	return loaded, nil
 }
 
-// split_images cuts text after each image reference and puts the image there.
-func split_images(text string, dir string) ([]message.Content, error) {
+func split_images(text string, directory string) ([]message.Content, error) {
 	contents := []message.Content{}
 	start := 0
 	for _, reference := range image_references(text) {
-		image, error := read_image(dir, text[reference[2]:reference[3]])
+		image, error := read_image(directory, text[reference[2]:reference[3]])
 		if error != nil {
 			return nil, error
 		}
@@ -112,8 +101,6 @@ func split_images(text string, dir string) ([]message.Content, error) {
 	return contents, nil
 }
 
-// image_references finds local image references outside fenced blocks, as
-// submatch offsets into text.
 func image_references(text string) [][]int {
 	references := [][]int{}
 	in_fence := false
@@ -145,8 +132,8 @@ func local_image(target string) bool {
 	return ok
 }
 
-func read_image(dir string, target string) (message.ImageContent, error) {
-	data, error := os.ReadFile(filepath.Join(dir, target))
+func read_image(directory string, target string) (message.ImageContent, error) {
+	data, error := os.ReadFile(filepath.Join(directory, target))
 	if errors.Is(error, os.ErrNotExist) {
 		return message.ImageContent{}, fmt.Errorf("image %s: not found next to session.md", target)
 	}

@@ -10,16 +10,13 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
-// lazy_spec is extras/lazy.lua as lazy.nvim would read it.
 type lazy_spec struct {
 	Build string            `msgpack:"build"`
 	Cmd   []string          `msgpack:"cmd"`
-	Keys  map[string]string `msgpack:"keys"` // lhs -> rhs
+	Keys  map[string]string `msgpack:"keys"`
 	Remap bool              `msgpack:"remap"`
 }
 
-// The lazy.nvim spec builds the binary where the plugin looks for it by
-// default, lazy-loads on the commands, and maps the keys to <Plug>s.
 func TestLazySpec_BuildsTheBinaryAndLoadsOnCommands(t *testing.T) {
 	harness := nvimtest.Launch(t)
 	root := nvimtest.RepoRoot()
@@ -56,16 +53,12 @@ func TestLazySpec_BuildsTheBinaryAndLoadsOnCommands(t *testing.T) {
 		t.Error("<Plug> keys need remap = true")
 	}
 
-	// lazy.nvim runs a non-":" build string as a shell command in the plugin
-	// directory.
 	build := exec.Command("sh", "-c", spec.Build)
 	build.Dir = root
 	if output, error := build.CombinedOutput(); error != nil {
 		t.Fatalf("build %q: %v\n%s", spec.Build, error, output)
 	}
 
-	// lazy.nvim calls setup(opts); with no bin override the plugin must find
-	// what build produced.
 	if error := harness.Nvim.ExecLua(`require("the-agent").setup(dofile(...).opts)`, nil, filepath.Join(root, "extras", "lazy.lua")); error != nil {
 		t.Fatal(error)
 	}

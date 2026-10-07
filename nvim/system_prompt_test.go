@@ -26,7 +26,7 @@ func TestTASend_SendsLinkedSystemPrompt(t *testing.T) {
 	if got, want := requests[0].SystemPrompt, "Be terse.\nAGENTS.md says: use tabs."; got != want {
 		t.Fatalf("system prompt\nwant %q\ngot  %q", want, got)
 	}
-	// The link is how the file points at the prompt, not something to say.
+
 	assert_texts(t, requests[0].Messages, "2026-10-06T14:32:00Z\n\nhello")
 }
 

@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// Neovim is the only interface: without --nvim the binary explains how to
-// use it and exits with a usage error instead of starting a UI.
 func TestWithoutNvimFlag_PrintsUsageAndExits(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "the-agent")
 	if output, error := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); error != nil {

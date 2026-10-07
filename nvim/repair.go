@@ -4,13 +4,6 @@ import (
 	neovim "github.com/neovim/go-client/nvim"
 )
 
-// repair_buffer removes from buffer the orphaned tool blocks that the request
-// left out: sent is the session as it was sent, repaired the same session
-// after session.Repair. It runs once the turn has ended and the buffer is
-// unlocked, so the repair is the last change of the turn: a single u brings
-// back what it removed, whatever the streaming before it did. The removed
-// lines all lie above the last user turn, so the turn streamed below it
-// doesn't move them. The buffer is saved.
 func repair_buffer(client *neovim.Nvim, buffer neovim.Buffer, sent string, repaired string) error {
 	if sent == repaired {
 		return nil

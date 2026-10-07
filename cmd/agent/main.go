@@ -19,7 +19,6 @@ import (
 
 const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run bash commands. You can search for files and their contents. Help the user with their coding tasks.`
 
-// USAGE is printed when the binary is run outside Neovim.
 const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
 
 Install the plugin (see extras/lazy.lua for a lazy.nvim spec), then use
@@ -47,9 +46,6 @@ func default_tools() []tool.Tool {
 	}
 }
 
-// run_nvim serves msgpack-RPC on stdio for the Neovim that started this
-// process with jobstart(..., { rpc = true }). It returns when that Neovim
-// exits. stdout is the RPC pipe, so nothing else may write to it.
 func run_nvim() {
 	log.SetOutput(os.Stderr)
 
