@@ -10,7 +10,7 @@ import (
 func TestEstimateTokens_CountsSystemPromptAndMessagesAtFourBytesPerToken(t *testing.T) {
 	messages := []message.Message{
 		message.UserMessage{Content: []message.Content{message.TextContent{Text: "hello world!"}}}, // 12 bytes
-		message.AssistantMessage{Content: []message.Content{message.TextContent{Text: "hi"}}},     // 2 bytes
+		message.AssistantMessage{Content: []message.Content{message.TextContent{Text: "hi"}}},      // 2 bytes
 	}
 	// 4 + 12 + 2 = 18 bytes, rounded up to 5 tokens.
 	if got := session.EstimateTokens("abcd", messages); got != 5 {
