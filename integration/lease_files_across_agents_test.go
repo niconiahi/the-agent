@@ -143,9 +143,35 @@ func TestLease_ICannotTypeIntoALeasedBufferButCanIntoOneTheAgentOnlyRead(t *test
 	}
 }
 
-// Records, after every request that changed the buffer of path, whether it
-// was modifiable: a callback scheduled from on_lines runs only once the
-// request that changed the lines has returned.
+func TestLease_ALeasedBufferWipedAndReopenedMidTurnIsLockedAgain(t *testing.T) {
+	held := nvimtest.Reply{ToolCalls: []message.ToolCall{call("tc_2", "read", map[string]any{"path": "a.txt"})}, Gate: nvimtest.NewGate()}
+	nvimtest.RegisterProvider(t,
+		nvimtest.Reply{ToolCalls: []message.ToolCall{edit_call("tc_1", "a.txt", "one", "ONE")}},
+		held,
+		nvimtest.Text("done", 10),
+	)
+	harness := nvimtest.StartWithTools(t, nvimtest.Config(), vimtool_tools)
+	edited := filepath.Join(harness.Dir, "a.txt")
+	harness.WriteFile("a.txt", "one\n")
+	harness.Command("TA foo")
+	harness.SetText(harness.Text() + "go\n")
+	harness.Command("TASend")
+	harness.WaitFor("the agent's edit", func() bool { return harness.ReadFile("a.txt") == "ONE\n" })
+
+	harness.Command("bwipeout! " + edited)
+	harness.Command("edit " + edited)
+	if path_modifiable(harness, edited) {
+		t.Fatal("the reopened leased buffer should not be modifiable while the agent runs")
+	}
+
+	held.Gate.Step(t)
+	held.Gate.Step(t)
+	wait_for_session_end(harness, "foo", "done")
+	if !path_modifiable(harness, edited) {
+		t.Fatal("the reopened buffer should be modifiable again once the turn ended")
+	}
+}
+
 func record_modifiable_after_changes(harness *nvimtest.Harness, path string) func() []bool {
 	harness.T.Helper()
 	code := `

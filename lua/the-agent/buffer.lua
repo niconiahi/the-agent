@@ -87,7 +87,28 @@ local function stale(buffer, agent)
   return vim.api.nvim_buf_get_changedtick(buffer) ~= seen
 end
 
-local ADVICE = "; work on other files or finish without it"
+M.ADVICE = "work on other files or finish without it"
+
+-- Paths whose buffers an agent's lease locked, by agent, so a buffer wiped
+-- and loaded again while the lease lasts comes back locked. changing is the
+-- path the agent is changing right now, which must stay unlocked meanwhile.
+local leases = {}
+local changing = nil
+
+local function lock(buffer, agent)
+  vim.bo[buffer].modifiable = false
+  vim.b[buffer].the_agent_lease = agent
+end
+
+vim.api.nvim_create_autocmd({ "BufReadPost", "BufWinEnter" }, {
+  group = vim.api.nvim_create_augroup("the-agent-leases", { clear = true }),
+  callback = function(event)
+    local path = vim.api.nvim_buf_get_name(event.buf)
+    if leases[path] and path ~= changing then
+      lock(event.buf, leases[path])
+    end
+  end,
+})
 
 -- Whether buffer is locked by anything but the agent's own lease: a
 -- running session's session.md, or a buffer I made unmodifiable.
@@ -96,7 +117,7 @@ local function locked(buffer, agent)
 end
 
 local function locked_error(path)
-  return { error = vim.fn.fnamemodify(path, ":.") .. " is locked in the editor" .. ADVICE }
+  return { error = vim.fn.fnamemodify(path, ":.") .. " is locked in the editor; " .. M.ADVICE }
 end
 
 -- Runs change, which changes the buffer of path, with that buffer unlocked
@@ -114,11 +135,18 @@ local function leased(path, agent, lease, change)
     held = not vim.bo[buffer].modifiable
     vim.bo[buffer].modifiable = true
   end
-  local result = change()
-  buffer = find(path)
-  if buffer and (held or (lease and not result.error)) then
-    vim.bo[buffer].modifiable = false
-    vim.b[buffer].the_agent_lease = agent
+  changing = path
+  local ok, result = pcall(change)
+  changing = nil
+  if not ok then
+    error(result, 0)
+  end
+  if held or (lease and not result.error) then
+    leases[path] = agent
+    buffer = find(path)
+    if buffer then
+      lock(buffer, agent)
+    end
   end
   return result
 end
@@ -127,6 +155,9 @@ end
 -- task ends. Buffers locked by anything else are left alone.
 function M.release(paths, agent)
   for _, path in ipairs(paths) do
+    if leases[path] == agent then
+      leases[path] = nil
+    end
     local buffer = find(path)
     if buffer and vim.b[buffer].the_agent_lease == agent then
       vim.bo[buffer].modifiable = true
