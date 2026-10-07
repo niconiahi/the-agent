@@ -81,17 +81,18 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 
 ## Milestone: Buffer-backed file tools
 
-The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. `grep` also fills the quickfix list. `write` sets a buffer's whole content, creating the file if needed, and `filter` runs a text-in, text-out command over a buffer like `:%!cmd`; both save at once as one undo block. An agent change to a buffer with my unsaved changes first saves my version to `<session>/unsaved/<path>.<timestamp>`, reloads the buffer from disk, applies the change and notifies me with the sidecar's path.
+The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. After an edit, new diagnostics inside the edited region are appended to the result, waiting briefly for an attached LSP to publish. `grep` also fills the quickfix list. `write` sets a buffer's whole content, creating the file if needed, and `filter` runs a text-in, text-out command over a buffer like `:%!cmd`; both save at once as one undo block. An agent change to a buffer with my unsaved changes first saves my version to `<session>/unsaved/<path>.<timestamp>`, reloads the buffer from disk, applies the change and notifies me with the sidecar's path.
 
 ### Package: `vimtool`
 
 **Constants**:
 - `QUICKFIX_TITLE = "the-agent grep"` - title of the quickfix list grep fills
+- `DIAGNOSTICS_WAIT = 500 * time.Millisecond` - longest an edit waits for an attached LSP to publish diagnostics
 
 **Functions**:
 - `Grep(client *neovim.Nvim) tool.Tool` - `tool.GrepTool` with the same result, plus one quickfix entry per hit
 - `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
-- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark
+- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark, new diagnostics in the region appended to the result
 - `Tools(client *neovim.Nvim) []tool.Tool` - the buffer-backed file tools
 - `Write(client *neovim.Nvim) tool.Tool` - buffer-backed write that creates the file if needed, one undo block, saved
 - `Filter(client *neovim.Nvim) tool.Tool` - runs a shell command over a buffer like `:%!cmd`, one undo block, saved; a failing command changes nothing
@@ -115,7 +116,7 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 
 ### Lua plugin
 
-- `lua/the-agent/buffer.lua` - `read`, `edit`, `write`, `filter` and `release`, each one RPC request; edit, write and filter share the sidecar-and-reload step for buffers with unsaved changes
+- `lua/the-agent/buffer.lua` - `read`, `edit`, `write`, `filter` and `release`, each one RPC request; edit, write and filter share the sidecar-and-reload step for buffers with unsaved changes; `edit` snapshots the diagnostics on the replaced lines and `release(region, timeout)` returns the new ones in the region
 
 ### Integration tests
 
@@ -123,3 +124,4 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 - `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`, and the sidecar and notification for a buffer with my unsaved changes
 - `integration/write_files_through_buffers_test.go` - `write` creates a file, replaces an open buffer as one undo block, and sets my unsaved changes aside in a sidecar first
 - `integration/filter_buffers_through_commands_test.go` - `filter` with `sort` and `gofmt` as one saved undo block; a failing command is a tool error that changes nothing
+- `integration/report_edit_diagnostics_test.go` - diagnostics published through `vim.diagnostic.set` and through an in-process fake LSP; only new ones inside the edited region are reported, no LSP means no wait, and a silent LSP costs at most `DIAGNOSTICS_WAIT`

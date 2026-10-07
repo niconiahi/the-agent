@@ -107,6 +107,70 @@ local function position(text, offset)
   return row, offset - line_start + 1
 end
 
+-- What an edit may have broken, keyed by "<buffer>:<mark>": how many of
+-- each diagnostic already sat on the replaced lines, and whether
+-- DiagnosticChanged fired since.
+local watches = {}
+
+local function identity(diagnostic)
+  return table.concat({ diagnostic.namespace, diagnostic.severity, diagnostic.message }, "\0")
+end
+
+local function snapshot(buffer, first_row, last_row)
+  local before = {}
+  for _, diagnostic in ipairs(vim.diagnostic.get(buffer)) do
+    if diagnostic.lnum >= first_row and diagnostic.lnum <= last_row then
+      before[identity(diagnostic)] = (before[identity(diagnostic)] or 0) + 1
+    end
+  end
+  return before
+end
+
+local function watch(buffer, mark, before)
+  local state = { before = before, changed = false }
+  state.autocmd = vim.api.nvim_create_autocmd("DiagnosticChanged", {
+    buffer = buffer,
+    callback = function()
+      state.changed = true
+    end,
+  })
+  watches[buffer .. ":" .. mark] = state
+end
+
+local SEVERITIES = { "error", "warning", "info", "hint" }
+
+-- The diagnostics inside the region that weren't on the replaced lines
+-- before the edit.
+local function new_diagnostics(region, state)
+  local mark = vim.api.nvim_buf_get_extmark_by_id(region.buffer, NAMESPACE, region.mark, { details = true })
+  if #mark == 0 then
+    return {}
+  end
+  local first_row, last_row = mark[1], mark[3].end_row
+  local before = vim.deepcopy(state.before)
+  local found = {}
+  for _, diagnostic in ipairs(vim.diagnostic.get(region.buffer)) do
+    if diagnostic.lnum >= first_row and diagnostic.lnum <= last_row then
+      local key = identity(diagnostic)
+      if (before[key] or 0) > 0 then
+        before[key] = before[key] - 1
+      else
+        table.insert(found, {
+          line = diagnostic.lnum + 1,
+          column = diagnostic.col + 1,
+          severity = SEVERITIES[diagnostic.severity] or "error",
+          message = diagnostic.message,
+          source = diagnostic.source or "",
+        })
+      end
+    end
+  end
+  table.sort(found, function(a, b)
+    return a.line < b.line or (a.line == b.line and a.column < b.column)
+  end)
+  return found
+end
+
 local function save(buffer)
   vim.api.nvim_buf_call(buffer, function()
     vim.cmd("silent write!")
@@ -160,15 +224,18 @@ local function prepare(path, agent, stamp)
 end
 
 -- Marks the changed text with an extmark, saves and records the agent's
--- tick. The region lets the caller inspect the change (e.g. for
--- diagnostics) before releasing it.
-local function finish(buffer, agent, start_row, start_col, end_row, end_col)
+-- tick. Given the diagnostics snapshot taken before the change, it watches
+-- for new ones so release can report them.
+local function finish(buffer, agent, start_row, start_col, end_row, end_col, before)
   local mark = vim.api.nvim_buf_set_extmark(buffer, NAMESPACE, start_row, start_col, {
     end_row = end_row,
     end_col = end_col,
     right_gravity = false,
     end_right_gravity = true,
   })
+  if before then
+    watch(buffer, mark, before)
+  end
   save(buffer)
   record(buffer, agent)
   return { region = { buffer = buffer, mark = mark } }
@@ -209,8 +276,9 @@ function M.edit(path, old_text, new_text, agent, stamp)
   end
 
   local lines = vim.split(new_text, "\n", { plain = true })
+  local before = snapshot(buffer, start_row, end_row)
   vim.api.nvim_buf_set_text(buffer, start_row, start_col, end_row, end_col, lines)
-  return finish(buffer, agent, start_row, start_col, start_row + #lines - 1, (#lines == 1 and start_col or 0) + #lines[#lines])
+  return finish(buffer, agent, start_row, start_col, start_row + #lines - 1, (#lines == 1 and start_col or 0) + #lines[#lines], before)
 end
 
 -- Sets the buffer's whole content, creating the file (and its directory)
@@ -259,9 +327,26 @@ function M.filter(path, command, agent, stamp)
   return finish(buffer, agent, 0, 0, last_row, #last_line)
 end
 
-function M.release(region)
+-- Ends an edit's region: waits up to `timeout` milliseconds for an attached
+-- LSP to publish diagnostics (no LSP, no wait), returns the new ones inside
+-- the region and deletes the mark.
+function M.release(region, timeout)
+  local key = region.buffer .. ":" .. region.mark
+  local state = watches[key]
+  local diagnostics = {}
+  if state then
+    watches[key] = nil
+    local attached = #vim.lsp.get_clients({ bufnr = region.buffer }) > 0
+    if timeout and timeout > 0 and attached and not state.changed then
+      vim.wait(timeout, function()
+        return state.changed
+      end, 10)
+    end
+    pcall(vim.api.nvim_del_autocmd, state.autocmd)
+    diagnostics = new_diagnostics(region, state)
+  end
   pcall(vim.api.nvim_buf_del_extmark, region.buffer, NAMESPACE, region.mark)
-  return vim.empty_dict()
+  return { diagnostics = diagnostics }
 end
 
 return M

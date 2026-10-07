@@ -28,7 +28,20 @@ Finds `old_text` in the buffer, which must occur exactly once, and replaces it w
 
 A buffer with my unsaved changes goes through the sidecar flow above first, so the agent never saves my work for me and `old_text` is matched against the disk version.
 
-The edited text is tracked with an extmark in the `the-agent-edit` namespace, never with stored line numbers. `edit` returns that region to Go and releases it once the tool call is done; that is the place to look at the region after the edit, for example for diagnostics. The result is `Edited <path>` and the same minus/plus listing as `tool`'s edit (`tool.Diff`).
+The edited text is tracked with an extmark in the `the-agent-edit` namespace, never with stored line numbers. `edit` returns that region to Go and releases it once the tool call is done. The result is `Edited <path>` and the same minus/plus listing as `tool`'s edit (`tool.Diff`).
+
+## diagnostics.go — what the edit broke
+
+The model learns what it broke without running anything. Before replacing the text, `edit` counts the diagnostics already on the replaced lines and starts listening for `DiagnosticChanged` on the buffer. Releasing the region then waits, up to `DIAGNOSTICS_WAIT` (500 ms), for that event, and only when an LSP client is attached to the buffer: with no LSP nothing will publish, so the edit returns at once. Diagnostics that arrive during the save itself (a `BufWritePost` checker) are picked up without waiting. The wait ends at the first `DiagnosticChanged`, so a server that publishes in several rounds may report only some of them; completeness is not promised.
+
+Whatever diagnostics then sit inside the region, minus the ones counted before (matched by namespace, severity and message, since Neovim does not move stored diagnostic positions with buffer edits), are appended to the result:
+
+```
+Diagnostics in the edited region:
+3:5 error: undefined: foo (gopls)
+```
+
+Lines and columns are 1-based. Diagnostics outside the region are never reported, and with none to report the section is left out. `write` and `filter` release their regions without a snapshot or a wait, so they report no diagnostics.
 
 ## write.go — Write
 
