@@ -45,6 +45,15 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
 	}
 
+	dir, error := session_dir(client, handle)
+	if error != nil {
+		return error
+	}
+	prompt, error := system_prompt(parsed, dir)
+	if error != nil {
+		return error
+	}
+
 	if !current.start(buffer) {
 		return errors.New("a turn is already running in this session")
 	}
@@ -57,7 +66,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 
 	go func() {
 		defer current.finish(buffer)
-		replies, error := current.run(messages[:len(messages)-1], last)
+		replies, error := current.run(prompt, messages[:len(messages)-1], last)
 
 		for _, reply := range replies {
 			parsed.AppendAssistant(current.config.Model.ID, current.config.Now(), reply.Usage.TotalTokens, reply_text(reply))
@@ -75,13 +84,13 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	return nil
 }
 
-// run sends history plus last to the model and returns the assistant
-// replies that have text.
-func (current *frontend) run(history []message.Message, last message.UserMessage) ([]*message.AssistantMessage, error) {
+// run sends history plus last to the model under the system prompt and
+// returns the assistant replies that have text.
+func (current *frontend) run(prompt string, history []message.Message, last message.UserMessage) ([]*message.AssistantMessage, error) {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
-		orchestrator.WithSystemPrompt(current.config.SystemPrompt),
+		orchestrator.WithSystemPrompt(prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
 		// The agent only holds this send's messages; the rest of the session
 		// is prepended on every request.
