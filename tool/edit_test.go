@@ -104,7 +104,7 @@ func TestEdit_ReplaceWithEmpty(t *testing.T) {
 }
 
 func TestGenerateDiff_SingleLine(t *testing.T) {
-	diff := generate_diff("hello", "world")
+	diff := Diff("hello", "world")
 
 	if diff != "- hello\n+ world\n" {
 		t.Errorf("expected '- hello\\n+ world\\n', got '%s'", diff)
@@ -112,7 +112,7 @@ func TestGenerateDiff_SingleLine(t *testing.T) {
 }
 
 func TestGenerateDiff_MultiLine(t *testing.T) {
-	diff := generate_diff("line1\nline2", "line1\nchanged")
+	diff := Diff("line1\nline2", "line1\nchanged")
 
 	if !strings.Contains(diff, "- line1") || !strings.Contains(diff, "- line2") {
 		t.Error("expected old lines with - prefix")
@@ -123,7 +123,7 @@ func TestGenerateDiff_MultiLine(t *testing.T) {
 }
 
 func TestGenerateDiff_AddLines(t *testing.T) {
-	diff := generate_diff("one", "one\ntwo\nthree")
+	diff := Diff("one", "one\ntwo\nthree")
 
 	plus_count := strings.Count(diff, "+ ")
 	minus_count := strings.Count(diff, "- ")
@@ -136,7 +136,7 @@ func TestGenerateDiff_AddLines(t *testing.T) {
 }
 
 func TestGenerateDiff_RemoveLines(t *testing.T) {
-	diff := generate_diff("one\ntwo\nthree", "one")
+	diff := Diff("one\ntwo\nthree", "one")
 
 	plus_count := strings.Count(diff, "+ ")
 	minus_count := strings.Count(diff, "- ")
