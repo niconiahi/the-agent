@@ -1,6 +1,8 @@
 package nvim_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +32,7 @@ func TestTASend_StreamsPartialTextBeforeTheTurnEnds(t *testing.T) {
 	want := "## user · 2026-10-06T14:32:00Z\n\nhello\n\n" +
 		"## assistant · fake-model · 2026-10-06T14:32:00Z · 42 tokens\n\none two three\n\n" +
 		"## user\n\n"
-	harness.WaitFor("the reply on disk", func() bool { return harness.ReadFile(SESSION) == want })
+	harness.WaitFor("the reply on disk", func() bool { return on_disk(harness) == want })
 	if got := harness.Text(); got != want {
 		t.Fatalf("buffer\nwant %q\ngot  %q", want, got)
 	}
@@ -49,7 +51,7 @@ func TestTASend_BatchesDeltasInsteadOfOneEditPerDelta(t *testing.T) {
 	before := changedtick(harness)
 	harness.Command("TASend")
 	harness.WaitFor("the reply on disk", func() bool {
-		return strings.Contains(harness.ReadFile(SESSION), strings.Repeat("x", 100))
+		return strings.Contains(on_disk(harness), strings.Repeat("x", 100))
 	})
 
 	// Every buffer edit bumps b:changedtick. One edit per delta would be
@@ -78,8 +80,61 @@ func TestTASend_LocksTheSessionDuringTheTurn(t *testing.T) {
 	harness.Command("normal! gg")
 	harness.Command("normal! G")
 
-	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(harness.ReadFile(SESSION), "## user\n\n") })
+	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(on_disk(harness), "## user\n\n") })
 	harness.WaitFor("the session to unlock", func() bool { return modifiable(harness) })
+}
+
+func TestTASend_FollowsTheStreamWhenTheCursorIsAtTheBottom(t *testing.T) {
+	nvimtest.RegisterProvider(t, slow(1, 100*time.Millisecond, "one\n\n", "two\n\n", "three"))
+	harness := nvimtest.Start(t, nvimtest.Config())
+
+	harness.Command("TA foo")
+	harness.SetText("## user\n\nhello\n")
+	harness.Command("normal! G")
+	harness.Command("TASend")
+
+	harness.WaitFor("partial text", func() bool { return strings.Contains(harness.Text(), "one") })
+	if line, last := eval_int(harness, `line(".")`), eval_int(harness, `line("$")`); line != last {
+		t.Fatalf("mid-stream the cursor is on line %d of %d", line, last)
+	}
+	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(on_disk(harness), "## user\n\n") })
+	if line, last := eval_int(harness, `line(".")`), eval_int(harness, `line("$")`); line != last {
+		t.Fatalf("after the turn the cursor is on line %d of %d", line, last)
+	}
+}
+
+func TestTASend_LeavesTheViewAloneWhenTheCursorIsElsewhere(t *testing.T) {
+	nvimtest.RegisterProvider(t, slow(1, 100*time.Millisecond, "one\n\n", "two\n\n", "three"))
+	harness := nvimtest.Start(t, nvimtest.Config())
+
+	harness.Command("TA foo")
+	harness.SetText("## user\n\nhello\n")
+	harness.Command("normal! gg")
+	harness.Command("TASend")
+
+	harness.WaitFor("the turn to end", func() bool { return strings.HasSuffix(on_disk(harness), "## user\n\n") })
+	if line := eval_int(harness, `line(".")`); line != 1 {
+		t.Fatalf("the cursor moved to line %d", line)
+	}
+	if top := eval_int(harness, `line("w0")`); top != 1 {
+		t.Fatalf("the view scrolled to line %d", top)
+	}
+}
+
+// on_disk is the session file, or "" while :write has it renamed away
+// (Neovim's writebackup), so it can be polled.
+func on_disk(harness *nvimtest.Harness) string {
+	contents, _ := os.ReadFile(filepath.Join(harness.Dir, SESSION))
+	return string(contents)
+}
+
+func eval_int(harness *nvimtest.Harness, expression string) int {
+	harness.T.Helper()
+	var value int
+	if error := harness.Nvim.Eval(expression, &value); error != nil {
+		harness.T.Fatal(error)
+	}
+	return value
 }
 
 func modifiable(harness *nvimtest.Harness) bool {

@@ -8,13 +8,27 @@ function M.lock(buf)
   vim.bo[buf].modifiable = false
 end
 
--- Replaces lines [first, last) of the locked buf with lines.
+-- Replaces lines [first, last) of the locked buf with lines. Windows whose
+-- cursor was on the last line follow it; the others don't move.
 function M.set_lines(buf, first, last, lines)
+  local bottom = vim.api.nvim_buf_line_count(buf)
+  local followers = {}
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    if vim.api.nvim_win_get_cursor(win)[1] == bottom then
+      table.insert(followers, win)
+    end
+  end
+
   vim.bo[buf].modifiable = true
   local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, first, last, true, lines)
   vim.bo[buf].modifiable = false
   if not ok then
     error(err, 0)
+  end
+
+  bottom = vim.api.nvim_buf_line_count(buf)
+  for _, win in ipairs(followers) do
+    vim.api.nvim_win_set_cursor(win, { bottom, 0 })
   end
 end
 
