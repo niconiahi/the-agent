@@ -55,6 +55,45 @@ func TestImages_RoundTripAsRelativeReferencesToSiblingFiles(t *testing.T) {
 	}
 }
 
+func TestToolResultBlock_SavesItsImagesNextToTheSessionAndSendsThemBack(t *testing.T) {
+	directory := t.TempDir()
+	at := must_time(t, "2026-10-06T14:33:00Z")
+	image := message.ImageContent{Data: PIXEL, MimeType: "image/png"}
+	result := message.ToolResultMessage{
+		ToolCallID: "tc_1",
+		Content:    []message.Content{message.TextContent{Text: "the screenshot:"}, image},
+	}
+
+	block, error := session.ToolResultBlock(result, at, directory)
+	if error != nil {
+		t.Fatal(error)
+	}
+	if strings.Contains(block, PIXEL) {
+		t.Fatalf("base64 must never enter the file:\n%s", block)
+	}
+	saved, _ := filepath.Glob(filepath.Join(directory, "*.png"))
+	if len(saved) != 1 {
+		t.Fatalf("want the image saved next to session.md, got %v", saved)
+	}
+	reference := "![](" + filepath.Base(saved[0]) + ")"
+	if want := "```tool_result id=tc_1 ts=2026-10-06T14:33:00Z\nthe screenshot:\n" + reference + "\n```"; block != want {
+		t.Fatalf("want\n%s\ngot\n%s", want, block)
+	}
+
+	call := "```tool_call id=tc_1 name=screenshot ts=2026-10-06T14:33:00Z\n{}\n```"
+	messages := load(t, directory, "## assistant\n\n"+call+"\n\n"+block+"\n")
+	sent, _ := messages[1].(message.ToolResultMessage)
+	found := false
+	for _, content := range sent.Content {
+		if content == message.Content(image) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want the image sent back in the tool result, got %#v", sent.Content)
+	}
+}
+
 func TestSaveImage_SameImageSameFile(t *testing.T) {
 	directory := t.TempDir()
 	image := message.ImageContent{Data: PIXEL, MimeType: "image/png"}

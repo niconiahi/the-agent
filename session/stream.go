@@ -14,6 +14,6 @@ func ToolCallBlock(call message.ToolCall, at time.Time) (string, error) {
 	return render_tool_call(call, at)
 }
 
-func ToolResultBlock(result message.ToolResultMessage, at time.Time) string {
-	return render_tool_result(result, at)
+func ToolResultBlock(result message.ToolResultMessage, at time.Time, directory string) (string, error) {
+	return render_tool_result(result, at, directory)
 }

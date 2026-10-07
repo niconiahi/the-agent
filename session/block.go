@@ -266,18 +266,25 @@ func render_tool_call(call message.ToolCall, at time.Time) (string, error) {
 	return render_block(info, strings.TrimSuffix(buffer.String(), "\n")), nil
 }
 
-func render_tool_result(result message.ToolResultMessage, at time.Time) string {
+func render_tool_result(result message.ToolResultMessage, at time.Time, directory string) (string, error) {
 	info := fmt.Sprintf("%s id=%s ts=%s", BLOCK_TOOL_RESULT, result.ToolCallID, stamp(at))
 	if result.IsError {
 		info += " error=true"
 	}
 	parts := []string{}
 	for _, content := range result.Content {
-		if text, ok := content.(message.TextContent); ok {
-			parts = append(parts, text.Text)
+		switch typed := content.(type) {
+		case message.TextContent:
+			parts = append(parts, typed.Text)
+		case message.ImageContent:
+			reference, error := SaveImage(directory, typed)
+			if error != nil {
+				return "", error
+			}
+			parts = append(parts, reference)
 		}
 	}
-	return render_block(info, strings.Join(parts, "\n"))
+	return render_block(info, strings.Join(parts, "\n")), nil
 }
 
 func result_stamps(called string, answered string) string {

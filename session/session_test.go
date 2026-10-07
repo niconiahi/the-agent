@@ -187,12 +187,12 @@ func TestAppend_RendersThinkingToolCallsAndResultsThatParseBack(t *testing.T) {
 		ToolCallID: "tc_1",
 		ToolName:   "read",
 		Content:    []message.Content{message.TextContent{Text: "# A\n\n```go\nx\n```"}},
-	}, at)
+	}, at, t.TempDir())
 	parsed.AppendToolResult(message.ToolResultMessage{
 		ToolCallID: "tc_2",
 		Content:    []message.Content{message.TextContent{Text: "no such file"}},
 		IsError:    true,
-	}, at)
+	}, at, t.TempDir())
 	parsed.AppendAssistantMessage("kimi-k2.5", at, message.AssistantMessage{
 		Content: []message.Content{message.TextContent{Text: "done"}},
 		Usage:   message.Usage{TotalTokens: 1300},

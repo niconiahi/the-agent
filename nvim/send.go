@@ -56,7 +56,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	}
 	go func() {
 		defer current.finish(buffer)
-		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
+		replies := &reply_writer{output: output, directory: prepared.directory, model: current.config.Model.ID, now: current.config.Now}
 		error := current.run(running.context, prepared, replies.handle)
 		if running.context.Err() != nil {
 			error = nil

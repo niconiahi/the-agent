@@ -199,14 +199,19 @@ func (parsed *Session) AppendAssistantMessage(model string, at time.Time, reply 
 	return nil
 }
 
-func (parsed *Session) AppendToolResult(result message.ToolResultMessage, at time.Time) {
+func (parsed *Session) AppendToolResult(result message.ToolResultMessage, at time.Time, directory string) error {
+	block, error := render_tool_result(result, at, directory)
+	if error != nil {
+		return error
+	}
 	parsed.separate()
-	block := render_tool_result(result, at) + "\n"
+	block += "\n"
 	if len(parsed.turns) == 0 {
 		parsed.preamble += block
-		return
+		return nil
 	}
 	parsed.turns[len(parsed.turns)-1].body += block
+	return nil
 }
 
 func (parsed *Session) AppendUser() {

@@ -146,9 +146,10 @@ func (current *stream) set_lines(first int, last int, lines []string) error {
 }
 
 type reply_writer struct {
-	output *stream
-	model  string
-	now    func() time.Time
+	output    *stream
+	directory string
+	model     string
+	now       func() time.Time
 
 	open    bool
 	heading int
@@ -193,7 +194,12 @@ func (writer *reply_writer) handle(event orchestrator.AgentEvent) {
 			writer.end(reply)
 		case message.ToolResultMessage:
 
-			writer.output.begin(session.ToolResultBlock(reply, writer.now()))
+			block, error := session.ToolResultBlock(reply, writer.now(), writer.directory)
+			if error != nil {
+				writer.failure = errors.Join(writer.failure, error)
+				return
+			}
+			writer.output.begin(block)
 		}
 	}
 }
