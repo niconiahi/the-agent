@@ -120,12 +120,13 @@ func (config Config) run(invocation_context context.Context, arguments map[strin
 	child.Subscribe(listener)
 	error = child.Prompt(vimtool.WithSession(invocation_context, directory, now), first)
 	end(error)
+	link := Link{Folder: filepath.Base(directory)}
 	if error != nil {
-		return tool.ToolResult{}, fmt.Errorf("subagent %s: %w", filepath.Base(directory), error)
+		return tool.ToolResult{Details: link}, fmt.Errorf("subagent %s: %w", link.Folder, error)
 	}
 	return tool.ToolResult{
 		Content: []message.Content{message.TextContent{Text: report(child.State().Messages)}},
-		Details: Link{Folder: filepath.Base(directory)},
+		Details: link,
 	}, nil
 }
 

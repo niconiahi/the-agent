@@ -72,6 +72,7 @@ func execute_sequential(invocation_context context.Context, agent_context *Agent
 		if error != nil {
 			tool_result = tool.ToolResult{
 				Content: []message.Content{message.TextContent{Text: error.Error()}},
+				Details: tool_result.Details,
 			}
 		}
 
@@ -206,6 +207,7 @@ func execute_parallel(invocation_context context.Context, agent_context *AgentCo
 		if pr.error != nil {
 			tool_result = tool.ToolResult{
 				Content: []message.Content{message.TextContent{Text: pr.error.Error()}},
+				Details: tool_result.Details,
 			}
 		}
 

@@ -201,3 +201,19 @@ func TestTAAbort_InTheParentAbortsTheRunningChild(t *testing.T) {
 		t.Fatal("the aborted parent is still locked")
 	}
 }
+
+func TestTask_AFailedChildIsStillLinkedFromTheParent(t *testing.T) {
+	harness, _ := start_delegating(t, nvimtest.Reply{StopReason: message.STOP_REASON_ERROR, ErrorMessage: "connection reset"})
+	harness.WaitFor("the parent turn", func() bool {
+		return strings.HasSuffix(session_on_disk(harness, "foo"), "\ndone\n\n## user\n\n")
+	})
+
+	parent := session_on_disk(harness, "foo")
+	want := "[01-map-callers-of-foo](01-map-callers-of-foo/session.md)\n\n```tool_result id=t1 "
+	if !strings.Contains(parent, want) {
+		t.Fatalf("the parent should link the failed child before its result:\n%s", parent)
+	}
+	if !strings.Contains(parent, "connection reset") {
+		t.Fatalf("the parent should carry the child's error:\n%s", parent)
+	}
+}
