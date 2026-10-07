@@ -113,6 +113,10 @@ local function save(buffer)
   end)
 end
 
+local function missing(path)
+  return { error = "failed to read file: " .. path .. ": no such file" }
+end
+
 -- Gets the buffer for path ready for an agent change: the loaded buffer or
 -- a newly loaded one, holding what is on disk.
 local function prepare(path)
@@ -147,7 +151,7 @@ function M.edit(path, old_text, new_text, agent)
   end
   path = resolve(path)
   if not find(path) and vim.fn.filereadable(path) == 0 then
-    return { error = "failed to read file: " .. path .. ": no such file" }
+    return missing(path)
   end
   local buffer, failure = prepare(path)
   if not buffer then
@@ -195,6 +199,33 @@ function M.write(path, text, agent)
   end
   vim.bo[buffer].eol = ends
   return finish(buffer, agent, 0, 0, #lines - 1, #lines[#lines])
+end
+
+-- Runs command over the whole buffer like :%!command. A command that fails
+-- is undone at once, so it leaves neither text nor an undo step behind.
+function M.filter(path, command, agent)
+  path = resolve(path)
+  if not find(path) and vim.fn.filereadable(path) == 0 then
+    return missing(path)
+  end
+  local buffer, failure = prepare(path)
+  if not buffer then
+    return { error = failure }
+  end
+  vim.api.nvim_buf_call(buffer, function()
+    vim.cmd("silent %!" .. vim.fn.escape(command, "%#!"))
+  end)
+  if vim.v.shell_error ~= 0 then
+    local output = content(buffer)
+    local code = vim.v.shell_error
+    vim.api.nvim_buf_call(buffer, function()
+      vim.cmd("silent undo")
+    end)
+    return { error = string.format("%s exited with %d: %s", command, code, output) }
+  end
+  local last_row = vim.api.nvim_buf_line_count(buffer) - 1
+  local last_line = vim.api.nvim_buf_get_lines(buffer, last_row, last_row + 1, true)[1]
+  return finish(buffer, agent, 0, 0, last_row, #last_line)
 end
 
 function M.release(region)

@@ -21,7 +21,7 @@ func session_directory(invocation_context context.Context) string {
 }
 
 func Tools(client *neovim.Nvim) []tool.Tool {
-	return []tool.Tool{Read(client), Edit(client), Write(client)}
+	return []tool.Tool{Read(client), Edit(client), Write(client), Filter(client)}
 }
 
 type region struct {
