@@ -1,4 +1,4 @@
-package main
+package integration_test
 
 import (
 	"errors"
@@ -26,14 +26,21 @@ func new_session(text string) bool {
 	return rest == "\n## user\n\n"
 }
 
-func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
-	harness := nvimtest.Launch(t)
-
+func build_binary(t *testing.T) string {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "the-agent")
-	build := exec.Command("go", "build", "-o", binary, ".")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/agent")
+	build.Dir = nvimtest.RepoRoot()
 	if output, error := build.CombinedOutput(); error != nil {
 		t.Fatalf("go build: %v\n%s", error, output)
 	}
+	return binary
+}
+
+func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
+	harness := nvimtest.Launch(t)
+
+	binary := build_binary(t)
 	harness.Setup(`{ bin = ... }`, binary)
 
 	harness.Command("TA foo")

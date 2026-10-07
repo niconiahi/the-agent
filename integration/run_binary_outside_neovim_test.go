@@ -1,18 +1,14 @@
-package main
+package integration_test
 
 import (
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestWithoutNvimFlag_PrintsUsageAndExits(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "the-agent")
-	if output, error := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); error != nil {
-		t.Fatalf("go build: %v\n%s", error, output)
-	}
+	binary := build_binary(t)
 
 	command := exec.Command(binary)
 	command.Dir = t.TempDir()
