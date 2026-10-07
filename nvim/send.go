@@ -57,23 +57,12 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	}
 	go func() {
 		defer current.finish(buffer)
-		replies := &reply_writer{output: output, directory: prepared.directory, model: current.config.Model.ID, now: current.config.Now}
-		previews := start_previewer(client)
-		error := current.run(running.context, client, prepared, func(event orchestrator.AgentEvent) {
-			replies.handle(event)
-			previews.handle(event)
-		})
+		writer := current.start_writer(client, output, prepared.directory)
+		error := current.run(running.context, client, prepared, writer.handle)
 		if running.context.Err() != nil {
 			error = nil
 		}
-		error = errors.Join(error, replies.failure, previews.finish())
-
-		if replies.wrote {
-			output.begin("## user\n")
-		}
-		if finish_error := output.finish(); finish_error != nil {
-			error = errors.Join(error, finish_error)
-		}
+		error = errors.Join(error, writer.finish())
 		if repair_error := repair_buffer(client, handle, stamped, repaired); repair_error != nil {
 			error = errors.Join(error, repair_error)
 		}
@@ -83,6 +72,31 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		current.refresh(client, buffer)
 	}()
 	return nil
+}
+
+type session_writer struct {
+	replies  *reply_writer
+	previews *previewer
+}
+
+func (current *frontend) start_writer(client *neovim.Nvim, output *stream, directory string) *session_writer {
+	return &session_writer{
+		replies:  &reply_writer{output: output, directory: directory, model: current.config.Model.ID, now: current.config.Now},
+		previews: start_previewer(client),
+	}
+}
+
+func (writer *session_writer) handle(event orchestrator.AgentEvent) {
+	writer.replies.handle(event)
+	writer.previews.handle(event)
+}
+
+func (writer *session_writer) finish() error {
+	failure := errors.Join(writer.replies.failure, writer.previews.finish())
+	if writer.replies.wrote {
+		writer.replies.output.begin("## user\n")
+	}
+	return errors.Join(failure, writer.replies.output.finish())
 }
 
 func (current *frontend) run(invocation_context context.Context, client *neovim.Nvim, prepared *request, listener func(orchestrator.AgentEvent)) error {

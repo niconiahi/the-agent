@@ -5,9 +5,6 @@ import (
 	"github.com/niconiahi/the-agent/sender"
 )
 
-// AgentEvent is everything an Agent emits. Every event names the agent that
-// emitted it, so one listener can route the events of several agents (root
-// sessions running side by side, or subagents forwarded by a parent).
 type AgentEvent interface {
 	is_agent_event()
 	AgentEventType() string
@@ -15,8 +12,6 @@ type AgentEvent interface {
 	from(Source) AgentEvent
 }
 
-// Source identifies the agent that emitted an event. The Agent fills it in;
-// code building events leaves it empty.
 type Source struct {
 	Agent string
 }
@@ -108,15 +103,40 @@ type ToolExecutionEndEvent struct {
 func (ToolExecutionEndEvent) is_agent_event()        {}
 func (ToolExecutionEndEvent) AgentEventType() string { return "tool_execution_end" }
 
-func (event AgentEndEvent) from(source Source) AgentEvent { event.Source = source; return event }
+func (event AgentStartEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
 
-func (event TurnEndEvent) from(source Source) AgentEvent { event.Source = source; return event }
+func (event AgentEndEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
 
-func (event MessageStartEvent) from(source Source) AgentEvent { event.Source = source; return event }
+func (event TurnStartEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
 
-func (event MessageUpdateEvent) from(source Source) AgentEvent { event.Source = source; return event }
+func (event TurnEndEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
 
-func (event MessageEndEvent) from(source Source) AgentEvent { event.Source = source; return event }
+func (event MessageStartEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
+
+func (event MessageUpdateEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
+
+func (event MessageEndEvent) from(source Source) AgentEvent {
+	event.Source = source
+	return event
+}
 
 func (event ToolExecutionStartEvent) from(source Source) AgentEvent {
 	event.Source = source
@@ -129,16 +149,6 @@ func (event ToolExecutionUpdateEvent) from(source Source) AgentEvent {
 }
 
 func (event ToolExecutionEndEvent) from(source Source) AgentEvent {
-	event.Source = source
-	return event
-}
-
-func (event AgentStartEvent) from(source Source) AgentEvent {
-	event.Source = source
-	return event
-}
-
-func (event TurnStartEvent) from(source Source) AgentEvent {
 	event.Source = source
 	return event
 }

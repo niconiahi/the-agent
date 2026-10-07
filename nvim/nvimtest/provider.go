@@ -44,17 +44,10 @@ type Reply struct {
 	StopReason   message.StopReason
 	ErrorMessage string
 
-	// Fragments, when set, holds for each tool call the argument JSON to
-	// stream as separate deltas, in place of its marshalled Arguments. The
-	// ToolCallEnd still carries the call as given.
 	Fragments [][]string
-	// Gate, when set, holds the reply's tool calls before each argument
-	// fragment and before each ToolCallEnd until the test steps it.
-	Gate *Gate
+	Gate      *Gate
 }
 
-// Gate pauses a scripted stream between tool-argument fragments so a test
-// can look at Neovim at each point of the stream.
 type Gate struct {
 	steps chan struct{}
 }
@@ -63,8 +56,6 @@ func NewGate() *Gate {
 	return &Gate{steps: make(chan struct{})}
 }
 
-// Step lets the next fragment (or the ToolCallEnd after the last one)
-// through, returning once the stream has taken it.
 func (gate *Gate) Step(t *testing.T) {
 	t.Helper()
 	select {
@@ -90,10 +81,6 @@ type script struct {
 	replies []Reply
 }
 
-// Script gives the agent whose first user message contains key its own
-// replies, so agents running at the same time (parallel sessions, subagents)
-// each get theirs no matter which asks first. Requests that match no script
-// take from the replies given to RegisterProvider.
 func (provider *Provider) Script(key string, replies ...Reply) {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
@@ -112,17 +99,9 @@ func (provider *Provider) queue(messages []message.Message) *[]Reply {
 
 func first_user_text(messages []message.Message) string {
 	for _, current := range messages {
-		user, ok := current.(message.UserMessage)
-		if !ok {
-			continue
+		if user, ok := current.(message.UserMessage); ok {
+			return message.Text(user.Content)
 		}
-		text := ""
-		for _, content := range user.Content {
-			if part, ok := content.(message.TextContent); ok {
-				text += part.Text
-			}
-		}
-		return text
 	}
 	return ""
 }

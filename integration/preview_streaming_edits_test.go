@@ -12,8 +12,6 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
-// The edit's arguments, split mid-key, mid-escape and mid-UTF-8 the way a
-// model streams them.
 var EDIT_FRAGMENTS = []string{
 	`{"pa`,
 	`th":"a.t`,
@@ -38,16 +36,12 @@ type gated_turn struct {
 	path    string
 }
 
-// start_gated_edit opens a.txt's session, sends a turn whose reply streams
-// the edit through a gate, and returns before the first fragment.
 func start_gated_edit(t *testing.T, fragments []string, edit message.ToolCall, after ...nvimtest.Reply) *gated_turn {
 	t.Helper()
 	gated := nvimtest.Reply{ToolCalls: []message.ToolCall{edit}, Fragments: [][]string{fragments}, Gate: nvimtest.NewGate()}
 	return start_gated_turn(t, append([]nvimtest.Reply{gated}, after...)...)
 }
 
-// start_gated_turn is start_gated_edit for scripted replies, the first of
-// which holds the gate.
 func start_gated_turn(t *testing.T, replies ...nvimtest.Reply) *gated_turn {
 	t.Helper()
 	nvimtest.RegisterProvider(t, replies...)
@@ -62,7 +56,6 @@ func start_gated_turn(t *testing.T, replies ...nvimtest.Reply) *gated_turn {
 	return turn
 }
 
-// step lets one more fragment through and checks I am still where I was.
 func (turn *gated_turn) step() {
 	turn.harness.T.Helper()
 	turn.gate.Step(turn.harness.T)
@@ -94,8 +87,6 @@ func current_buffer(harness *nvimtest.Harness) int {
 	return buffer
 }
 
-// follow_window_file is the file the follow window shows, "" when there is
-// no follow window.
 func follow_window_file(harness *nvimtest.Harness) string {
 	harness.T.Helper()
 	var name string
@@ -109,12 +100,12 @@ func follow_window_file(harness *nvimtest.Harness) string {
 	return name
 }
 
-// preview is what the preview extmarks on a file's buffer show.
 type preview struct {
 	Marks   int      `msgpack:"marks"`
 	Region  []int    `msgpack:"region"`
 	Group   string   `msgpack:"group"`
 	Virtual []string `msgpack:"virtual"`
+	Anchor  int      `msgpack:"anchor"`
 }
 
 func preview_of(harness *nvimtest.Harness, path string) preview {
@@ -122,7 +113,7 @@ func preview_of(harness *nvimtest.Harness, path string) preview {
 	var shown preview
 	code := `local buffer = vim.fn.bufnr(...)
 	local namespace = vim.api.nvim_get_namespaces()["the-agent-preview"]
-	local shown = { marks = 0, region = {}, group = "", virtual = {} }
+	local shown = { marks = 0, region = {}, group = "", virtual = {}, anchor = -1 }
 	if buffer < 0 or not namespace then return shown end
 	for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buffer, namespace, 0, -1, { details = true })) do
 		shown.marks = shown.marks + 1
@@ -130,6 +121,9 @@ func preview_of(harness *nvimtest.Harness, path string) preview {
 		if details.hl_group then
 			shown.region = { mark[2], mark[3], details.end_row, details.end_col }
 			shown.group = details.hl_group
+		end
+		if details.virt_lines then
+			shown.anchor = mark[2]
 		end
 		for _, line in ipairs(details.virt_lines or {}) do
 			local text = ""
@@ -161,22 +155,22 @@ func TestEditPreview_PlaysOutInTheFollowWindowAsTheArgumentsStream(t *testing.T)
 	turn := start_gated_edit(t, EDIT_FRAGMENTS, streamed_edit(), nvimtest.Text("done", 10))
 	harness := turn.harness
 
-	turn.step() // {"pa
-	turn.step() // th":"a.t
+	turn.step()
+	turn.step()
 	if got := follow_window_file(harness); got != "" {
 		t.Fatalf("follow window before path completed: %q", got)
 	}
 
-	turn.step() // xt","old_te
+	turn.step()
 	harness.WaitFor("the follow window to show a.txt", func() bool { return follow_window_file(harness) == turn.path })
 	turn.still_in_my_window()
 
-	turn.step() // xt":"two\
+	turn.step()
 	if got := preview_of(harness, turn.path); got.Marks != 0 {
 		t.Fatalf("preview before old_text completed: %#v", got)
 	}
 
-	turn.step() // nthree","new_
+	turn.step()
 	harness.WaitFor("the region to be highlighted", func() bool { return len(preview_of(harness, turn.path).Region) == 4 })
 	if got := preview_of(harness, turn.path); !slices.Equal(got.Region, []int{1, 0, 2, 5}) || got.Group != "TheAgentPreviewOld" {
 		t.Fatalf("highlight: %#v", got)
@@ -207,7 +201,7 @@ func TestEditPreview_PlaysOutInTheFollowWindowAsTheArgumentsStream(t *testing.T)
 		}
 	}
 
-	turn.step() // ToolCallEnd
+	turn.step()
 	turn.wait_for_turn_end()
 	turn.still_in_my_window()
 	const edited = "one\nTWO\nTHREE café é\nFOUR\nfive\n"
@@ -238,7 +232,6 @@ func (turn *gated_turn) wait_for_turn_end() {
 	})
 }
 
-// stream_into_new_text steps the edit until its new_text is drawn halfway.
 func (turn *gated_turn) stream_into_new_text() {
 	turn.harness.T.Helper()
 	for range 6 {
@@ -249,8 +242,6 @@ func (turn *gated_turn) stream_into_new_text() {
 	})
 }
 
-// untouched checks a.txt's buffer and file are exactly what they were and no
-// preview is left on it.
 func (turn *gated_turn) untouched(tick int) {
 	turn.harness.T.Helper()
 	turn.harness.WaitFor("the preview to be cleared", func() bool { return preview_of(turn.harness, turn.path).Marks == 0 })
@@ -264,6 +255,40 @@ func (turn *gated_turn) untouched(tick int) {
 	if got := turn.harness.ReadFile("a.txt"); got != "one\ntwo\nthree\nfive\n" {
 		turn.harness.T.Fatalf("disk: %q", got)
 	}
+}
+
+func TestEditPreview_TheRegionTracksAChangeThatShiftsItsLinesMidPreview(t *testing.T) {
+	turn := start_gated_edit(t, EDIT_FRAGMENTS, streamed_edit(), nvimtest.Text("done", 10))
+	harness := turn.harness
+	turn.stream_into_new_text()
+	if got := preview_of(harness, turn.path); !slices.Equal(got.Region, []int{1, 0, 2, 5}) || got.Anchor != 2 {
+		t.Fatalf("preview before the shift: %#v", got)
+	}
+
+	code := `vim.api.nvim_buf_set_lines(vim.fn.bufnr(...), 0, 0, true, { "zero", "half" })`
+	if error := harness.Nvim.ExecLua(code, nil, turn.path); error != nil {
+		t.Fatal(error)
+	}
+	if got := preview_of(harness, turn.path); !slices.Equal(got.Region, []int{3, 0, 4, 5}) || got.Anchor != 4 {
+		t.Fatalf("preview right after the shift: %#v", got)
+	}
+
+	for range 3 {
+		turn.step()
+	}
+	harness.WaitFor("the rest of new_text drawn under the shifted region", func() bool {
+		return slices.Equal(preview_of(harness, turn.path).Virtual, []string{"TWO", "THREE café é", "FOUR"})
+	})
+	if got := preview_of(harness, turn.path); !slices.Equal(got.Region, []int{3, 0, 4, 5}) || got.Anchor != 4 {
+		t.Fatalf("preview after the shift: %#v", got)
+	}
+	if got := buffer_lines(harness, turn.path); got != "zero\nhalf\none\ntwo\nthree\nfive\n" {
+		t.Fatalf("buffer text changed by the preview: %q", got)
+	}
+
+	turn.step()
+	turn.wait_for_turn_end()
+	harness.WaitFor("the preview to be cleared", func() bool { return preview_of(harness, turn.path).Marks == 0 })
 }
 
 func TestEditPreview_AbortClearsThePreviewAndLeavesTheFileUntouched(t *testing.T) {
@@ -288,7 +313,7 @@ func TestEditPreview_AStreamThatFailsMidCallClearsThePreviewAndLeavesTheFileUnto
 	turn.stream_into_new_text()
 	tick := buffer_tick(turn.harness, turn.path)
 
-	turn.step() // ToolCallEnd, then the error
+	turn.step()
 
 	turn.untouched(tick)
 }
@@ -301,7 +326,7 @@ func TestEditPreview_AnEditThatFailsClearsThePreviewAndLeavesTheFileUntouched(t 
 	tick := buffer_tick(turn.harness, turn.path)
 
 	turn.step()
-	turn.step() // ToolCallEnd: the edit runs and fails
+	turn.step()
 
 	turn.wait_for_turn_end()
 	turn.untouched(tick)

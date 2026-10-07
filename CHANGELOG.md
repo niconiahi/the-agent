@@ -405,17 +405,15 @@ A root session's agent can delegate with `task`: a fresh explorer agent runs the
 ### Package: `subagent`
 
 **Types**:
-- `Config` - model, stream options, the tools roles pick from, the `system_prompt.md` path, the `Host` and the clock
+- `Config` - model, stream options, the tools roles pick from, the explorer tool set (`ExplorerTools`, default `read`, `grep`, `find`, `ls`, `bash_read`), the `system_prompt.md` path, the `Host` and the clock
 - `Host` - `Open(path)` starts showing a child's session and returns the listener for its events and the func that ends it
 - `Link` - `Details` of a `task` result: the child's folder; `String()` is the markdown link
 
-**Constants and variables**:
+**Constants**:
 - `ROLE_EXPLORER = "explorer"`
-- `EXPLORER_TOOLS` - `read`, `grep`, `find`, `ls`, `bash_read`
 
 **Functions**:
 - `Task(config Config) tool.Tool` - the `task` tool
-- `Tools(tools []tool.Tool, names []string) []tool.Tool` - the named subset
 
 ### Package: `session`
 
@@ -423,12 +421,13 @@ A root session's agent can delegate with `task`: a fresh explorer agent runs the
 
 ### Package: `vimtool`
 
-- `SessionDirectory(ctx) string` - the running agent's session directory set by `WithSession`
+- `SessionDirectory(ctx) string` - the running agent's session directory set by `WithSession` (replaces the unexported `session_directory`)
 
 ### Package: `nvim`
 
 - Root agents get `task` on top of `Config.Tools`. A child's buffer is loaded without taking a window, locked while it streams, and its events go from the child agent straight to the router under the child's ID (its session directory), never through the parent.
-- The parent's writer puts the child's link between the `task` call and its result.
+- The parent's writer puts the child's link between the `task` call and its result. A failed or aborted child is linked too: `orchestrator` keeps a failing tool's `Details`.
+- `Config.ExplorerTools` - passed to `subagent.Config`; only tests set it
 
 ### Integration tests
 

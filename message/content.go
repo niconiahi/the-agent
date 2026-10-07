@@ -1,7 +1,19 @@
 package message
 
+import "strings"
+
 type Content interface {
 	is_content()
+}
+
+func Text(contents []Content) string {
+	parts := []string{}
+	for _, content := range contents {
+		if text, ok := content.(TextContent); ok {
+			parts = append(parts, text.Text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 type TextContent struct {

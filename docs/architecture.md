@@ -13,15 +13,18 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
          ↑      ↑
           orchestrator     session ──→ message
                ↑              ↑
+           subagent ──────────┤
+               ↑              │
                └──── nvim ────┘
-                      ↑    └──→ vimtool ──→ tool
+                      ↑    ├──→ partialjson
+                      │    └──→ vimtool ──→ tool
                       │            ↑
                   cmd/agent ───────┘
                       │
                       └──→ setup, clone ──→ layout
 ```
 
-`tool` and `nvim` also import `layout`, and `tool` imports `setup`.
+`subagent` also imports `message`, `model`, `sender`, `tool` and `vimtool`, and `nvim` imports `orchestrator` directly too. `tool` and `nvim` also import `layout`, and `tool` imports `setup`. `partialjson` imports nothing.
 
 **message** and **model** are the two roots. They don't import anything internal. They don't know about each other. `message` defines the data that flows through the system — what a user said, what the assistant replied, what a tool returned. `model` defines the LLM being targeted — its endpoint, its limits, its pricing.
 
@@ -45,7 +48,7 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
 
 **layout** is the one place that names the project's `.the-agent` folder and what is in it (`clone`, `tmp`, `sessions`, `system_prompt.md`, `.gitignore`) and `_the-agent`'s cache folders (`gocache`, `gomodcache`), with `Folder`, `Clone` and `Tmp` to build the paths. It imports nothing, so `setup`, `clone`, `tool` and `nvim` all use it without `tool` depending on Neovim.
 
-Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool and session, then orchestrator, then nvim.
+Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool, session and partialjson, then orchestrator, then subagent, then nvim.
 
 ## Why this split
 

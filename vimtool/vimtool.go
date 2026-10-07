@@ -22,15 +22,9 @@ func WithSession(invocation_context context.Context, directory string, now func(
 	return context.WithValue(invocation_context, session_key{}, agent_session{directory: directory, now: now})
 }
 
-func session_directory(invocation_context context.Context) string {
+func SessionDirectory(invocation_context context.Context) string {
 	current, _ := invocation_context.Value(session_key{}).(agent_session)
 	return current.directory
-}
-
-// SessionDirectory is the directory of the session.md whose agent runs the
-// tool, as set by WithSession, or "" outside a session.
-func SessionDirectory(invocation_context context.Context) string {
-	return session_directory(invocation_context)
 }
 
 func sidecar_timestamp(invocation_context context.Context) string {
@@ -83,7 +77,7 @@ func call_buffer_function(client *neovim.Nvim, function string, arguments ...any
 }
 
 func change_buffer(client *neovim.Nvim, invocation_context context.Context, diagnostics_wait time.Duration, function string, arguments ...any) ([]diagnostic, error) {
-	changed, error := call_buffer_function(client, function, append(arguments, session_directory(invocation_context), sidecar_timestamp(invocation_context))...)
+	changed, error := call_buffer_function(client, function, append(arguments, SessionDirectory(invocation_context), sidecar_timestamp(invocation_context))...)
 	if error != nil {
 		return nil, error
 	}

@@ -107,7 +107,7 @@ There is no compaction. A session has a token ceiling — fixed, configurable, d
 
 **Subagents.** Each subagent's `session.md` streams the same way. `gf` on its link in the parent opens it; `<C-o>` brings you back. netrw or oil.nvim is the agent explorer, and `:grep` searches every agent in the tree at once.
 
-**The follow window.** A dedicated window where the agent travels when it edits. It never takes over the window you're in. It follows the session you were last in (or that session's active subagent). Edits from other running sessions don't move it; they raise a short notification instead.
+**The follow window.** A dedicated window where the agent travels when it edits. It never takes over the window you're in. It follows the session you were last in or last sent from, together with all of its subagents; entering a subagent's file keeps following the session it belongs to. Until you enter or send a session, nothing is followed. Edits from other running sessions don't move it; they raise a short notification instead.
 
 ## Tools
 

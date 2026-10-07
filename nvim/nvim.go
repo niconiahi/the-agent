@@ -23,6 +23,7 @@ type Config struct {
 
 	SystemPrompt  string
 	Tools         []tool.Tool
+	ExplorerTools []string
 	StreamOptions *sender.StreamOptions
 
 	Ready   func() error

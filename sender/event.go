@@ -11,8 +11,8 @@ type EventStart struct {
 	Message *message.AssistantMessage
 }
 
-func (EventStart) is_event()            {}
-func (EventStart) EventType() string    { return "start" }
+func (EventStart) is_event()         {}
+func (EventStart) EventType() string { return "start" }
 
 type EventTextStart struct {
 	ContentIndex int
@@ -68,10 +68,9 @@ func (EventThinkingEnd) EventType() string { return "thinking_end" }
 
 type EventToolCallStart struct {
 	ContentIndex int
-	// ID and Name identify the call before its arguments stream.
-	ID      string
-	Name    string
-	Message *message.AssistantMessage
+	ID           string
+	Name         string
+	Message      *message.AssistantMessage
 }
 
 func (EventToolCallStart) is_event()         {}

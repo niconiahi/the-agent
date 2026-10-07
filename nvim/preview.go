@@ -15,14 +15,8 @@ import (
 	"github.com/niconiahi/the-agent/sender"
 )
 
-// PREVIEW_TOOL is the tool whose streaming arguments play out in the follow
-// window. Whole-file writes would only retype the file, so they don't.
 const PREVIEW_TOOL = "edit"
 
-// previewer plays edit calls out in the follow window while their arguments
-// stream, when the agent making them is the one followed (see follow.lua): the path opens the file, old_text highlights the region, new_text
-// grows as virtual text over it. Updates go to Neovim at most once per
-// FLUSH_INTERVAL. The preview is only extmarks; the real edit is the tool's.
 type previewer struct {
 	client *neovim.Nvim
 
@@ -113,8 +107,6 @@ func (current *previewer) handle(event orchestrator.AgentEvent) {
 	}
 }
 
-// fields is what the follow window can show of the arguments so far: the
-// path and old_text once complete, new_text as far as it has streamed.
 func fields(arguments string) map[string]string {
 	read := partialjson.Read(arguments)
 	shown := map[string]string{}
@@ -129,8 +121,6 @@ func fields(arguments string) map[string]string {
 	return shown
 }
 
-// flush sends what changed in previews since the last flush, in one batch.
-// The caller holds the mutex.
 func (current *previewer) flush(previews map[string]*edit_preview) {
 	batch := current.client.NewBatch()
 	changed := false
@@ -148,7 +138,6 @@ func (current *previewer) flush(previews map[string]*edit_preview) {
 	}
 }
 
-// clear removes previews and their extmarks. The caller holds the mutex.
 func (current *previewer) clear(previews map[string]*edit_preview) {
 	if len(previews) == 0 {
 		return
@@ -161,8 +150,6 @@ func (current *previewer) clear(previews map[string]*edit_preview) {
 	current.failure = errors.Join(current.failure, batch.Execute())
 }
 
-// finish stops the updates and clears any preview still showing, as when a
-// turn ends without running the edit.
 func (current *previewer) finish() error {
 	close(current.stop)
 	<-current.done

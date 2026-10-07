@@ -148,7 +148,7 @@ Iterates over tool calls one at a time:
 2. Emit `ToolExecutionStartEvent`
 3. Find the tool by name. Unknown tool → error result.
 4. Run the `BeforeToolCall` hook. If blocked → error result with the block reason.
-5. Execute the tool.
+5. Execute the tool. When it returns an error, the error text becomes the content and the result is an error, but the tool's details are kept (the `task` tool links its failed child this way).
 6. Run the `AfterToolCall` hook. Apply any overrides (content, details, error status).
 7. Build the `ToolResultMessage`, emit events.
 8. Check for steering messages. If found, the next iteration will skip remaining tools.
