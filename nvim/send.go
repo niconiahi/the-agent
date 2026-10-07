@@ -45,6 +45,28 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
 	}
 
+	dir, error := session_dir(client, handle)
+	if error != nil {
+		return error
+	}
+	prompt, error := system_prompt(parsed, dir)
+	if error != nil {
+		return error
+	}
+	if messages, error = session.LoadImages(messages, dir); error != nil {
+		return error
+	}
+	last = messages[len(messages)-1].(message.UserMessage)
+
+	size, error := current.count(client, prompt, messages)
+	if error != nil {
+		return error
+	}
+	if size.above() {
+		publish(client, handle, size)
+		return ceiling_error(size)
+	}
+
 	if !current.start(buffer) {
 		return errors.New("a turn is already running in this session")
 	}
@@ -57,7 +79,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 
 	go func() {
 		defer current.finish(buffer)
-		replies, error := current.run(messages[:len(messages)-1], last)
+		replies, error := current.run(prompt, messages[:len(messages)-1], last)
 
 		for _, reply := range replies {
 			switch typed := reply.(type) {
@@ -78,18 +100,20 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
 		}
+		current.refresh(client, buffer)
 	}()
 	return nil
 }
 
-// run sends history plus last to the model and returns, in order, the
-// assistant replies that have content (*message.AssistantMessage) and the
-// results of the tools they called (message.ToolResultMessage).
-func (current *frontend) run(history []message.Message, last message.UserMessage) ([]message.Message, error) {
+// run sends history plus last to the model under the system prompt and
+// returns, in order, the assistant replies that have content
+// (*message.AssistantMessage) and the results of the tools they called
+// (message.ToolResultMessage).
+func (current *frontend) run(prompt string, history []message.Message, last message.UserMessage) ([]message.Message, error) {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
-		orchestrator.WithSystemPrompt(current.config.SystemPrompt),
+		orchestrator.WithSystemPrompt(prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
 		// The agent only holds this send's messages; the rest of the session
 		// is prepended on every request.

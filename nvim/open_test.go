@@ -20,8 +20,24 @@ func TestTA_CreatesSessionFileAndOpensIt(t *testing.T) {
 	if got := harness.BufferName(); got != path {
 		t.Fatalf("want current buffer %q, got %q", path, got)
 	}
-	if got, want := harness.Text(), "## user\n\n"; got != want {
+	if got, want := harness.Text(), "[system_prompt.md](../../system_prompt.md)\n\n## user\n\n"; got != want {
 		t.Fatalf("want new session %q, got %q", want, got)
+	}
+}
+
+func TestTA_SeedsSystemPromptOnce(t *testing.T) {
+	config := nvimtest.Config()
+	harness := nvimtest.Start(t, config)
+
+	harness.Command("TA foo")
+	if got := harness.ReadFile(".the-agent/system_prompt.md"); got != config.SystemPrompt+"\n" {
+		t.Fatalf("system_prompt.md not seeded: %q", got)
+	}
+
+	harness.WriteFile(".the-agent/system_prompt.md", "my rules\n")
+	harness.Command("TA bar")
+	if got := harness.ReadFile(".the-agent/system_prompt.md"); got != "my rules\n" {
+		t.Fatalf("an existing system_prompt.md must be kept: %q", got)
 	}
 }
 
