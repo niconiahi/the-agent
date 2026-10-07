@@ -100,6 +100,21 @@ func TestStatusline_UpdatesAfterReply(t *testing.T) {
 	})
 }
 
+func TestStatusline_KeepsTheUsersOwnStatusline(t *testing.T) {
+	harness := nvimtest.Start(t, nvimtest.Config())
+	harness.Command("set statusline=mine")
+
+	harness.Command("TA foo")
+
+	var local string
+	if error := harness.Nvim.ExecLua(`return vim.wo.statusline`, &local); error != nil {
+		t.Fatal(error)
+	}
+	if local != "mine" {
+		t.Fatalf("the user's statusline was replaced by %q", local)
+	}
+}
+
 func TestStatusline_LeavesOtherBuffersAlone(t *testing.T) {
 	harness := nvimtest.Start(t, nvimtest.Config())
 

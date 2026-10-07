@@ -61,7 +61,10 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   pattern = SESSION_PATTERN,
   callback = function()
     local agent = require("the-agent")
-    if agent.config.statusline then
+    local default = vim.api.nvim_get_option_info2("statusline", {}).default
+    local window = vim.api.nvim_get_option_value("statusline", { scope = "local" })
+    local untouched = vim.go.statusline == default and (window == "" or window == agent.STATUSLINE)
+    if agent.config.statusline and untouched then
       vim.opt_local.statusline = agent.STATUSLINE
     end
   end,

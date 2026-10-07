@@ -14,8 +14,9 @@ M.config = {
   -- Token ceiling of a session. :TASend refuses above it. nil means 200k;
   -- it is always clamped to the model's context window.
   ceiling = nil,
-  -- Set a statusline showing the token count on session windows. Turn off
-  -- when your statusline plugin uses require("the-agent").statusline().
+  -- Set a statusline showing the token count on session windows, unless you
+  -- already set one (a statusline plugin, or :set statusline). Either way
+  -- require("the-agent").statusline() is the component to add to your own.
   statusline = true,
   -- Session naming: a function from what you typed after :TA (or into the
   -- <Plug>(TA) prompt, possibly "") to the session's name, e.g.
