@@ -497,3 +497,46 @@ Parallel agents can't overwrite each other or me. An agent takes a write lease o
 ### Integration tests
 
 - `integration/lease_files_across_agents_test.go` - two workers: the second's edit of the first's file fails at once naming the holder, and succeeds once the first ended; a leased buffer can't be typed into while one the agent only read can, and it unlocks when the turn ends; a leased buffer is never modifiable between requests across `edit`, `write` and `filter`; another agent's edit of a running session's `session.md` fails naming that session; `:TASend` on a `session.md` an agent leased is refused until the agent ends; `bash_write` leaves out the files another agent leased and applies the rest
+
+### Subagent and lease review fixes
+
+An explorer can no longer start a worker: its `task` offers only the `explorer` role, and a `worker` role from it is refused with `unknown role "worker": use explorer`. A child's `session.md` now records the `task` call that created it, `task call · <id>` under the creation line, and an amendment finds the parent's result through that call (its id, with the job breaking a tie when turns reuse an id) instead of through the link line, so moving or deleting the link no longer loses the amendment. Continuing a child while its parent is running no longer drops the corrected report with a notification: the amendment waits and is applied when the parent's turn ends, and is still skipped if the result was deleted by then. A leased buffer that I wipe and open again while the lease lasts comes back locked. The depth limit can be set with `THE_AGENT_MAX_DEPTH` (in the environment or `.env`).
+
+### Package: `subagent`
+
+- a `role` type (`ROLE_ROOT`, `ROLE_EXPLORER`, `ROLE_WORKER`) holds role validation, the roles a caller may start and each role's tools; a root session is `ROLE_ROOT`, no longer `""`
+- `Parent`, `ParentOf(directory string) (Parent, bool)` - a child's parent `session.md` and the `session.Origin` of the call that created it; `ToolsFor` and the frontend's amendment both use it
+- `Task(Config)` is now built per caller role and unexported; `DESCRIPTION` gains `WORKER_DESCRIPTION` only where a worker may be started
+- the `role` constants are now of type `role`; `WORKER_TOOLS` lists what a worker adds
+
+### Package: `session`
+
+- `TASK_CALL_PREFIX = "task call · "`, `NewChild(link string, call string, at time.Time) string` - a child's file with the creating call's id
+- `Origin`, `(*Session) Origin() (Origin, bool)` - the creating call's id and the job, read from a child's file
+- `TaskCall(text string, origin Origin) (message.ToolCall, bool)` replaces `LinkedCall`
+- `Amend(text string, origin Origin, report string, at time.Time) (string, bool)` - finds the result by the call, not the link
+
+### Package: `nvim`
+
+- an amendment for a running parent is queued and applied when that parent's turn ends, a root session's or a child's
+- `amend` reads the parent's text from its buffer or the disk once and calls `session.Amend` once
+
+### Package: `vimtool`
+
+- `LEASE_ADVICE` is gone: `buffer.lua`'s `ADVICE` is the one copy, which Go reads in the request that resolves the path
+- `edit`, `write`, `filter` and `bash_write`'s delete share one lease, change and give-back step
+
+### Package: `cmd/agent`
+
+- `THE_AGENT_MAX_DEPTH` sets `nvim.Config.MaxDepth`; a value that isn't a positive whole number makes `:TASend` refuse, naming it
+
+### Lua plugin
+
+- `buffer.lua` - `M.ADVICE`; leased paths are remembered per agent until `release`, and a `BufReadPost`/`BufWinEnter` autocmd locks a leased buffer again when it is loaded or shown anew
+
+### Tests
+
+- `integration/delegate_to_worker_test.go` - an explorer's `task` offers only `explorer` and refuses `worker`
+- `integration/continue_a_subagent_test.go` - the amendment lands with the link line moved or removed; a reused call id amends the right child's result; continuing a child while its parent runs amends the parent when its turn ends
+- `integration/lease_files_across_agents_test.go` - a leased buffer wiped and reopened mid-turn is locked again, and unlocked when the turn ends
+- `cmd/agent/main_test.go` - `THE_AGENT_MAX_DEPTH` parsing

@@ -66,8 +66,6 @@ func start_with_local_bash_write(t *testing.T, config nvim.Config, calls ...mess
 	return harness, provider
 }
 
-// local_bash_write builds bash_write running as me in a local clone, with
-// its changes replayed through the buffers.
 func local_bash_write(t *testing.T, config nvim.Config) func(*neovim.Nvim) []tool.Tool {
 	t.Helper()
 	binary := local_binary(t)

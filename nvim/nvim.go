@@ -61,6 +61,7 @@ type frontend struct {
 	config  Config
 	mutex   sync.Mutex
 	running map[int]*turn
+	active  map[string][]amendment
 	routes  routes
 }
 
@@ -75,7 +76,7 @@ func Attach(client *neovim.Nvim, config Config) error {
 		}
 		config.Project = project
 	}
-	current := &frontend{config: config, running: map[int]*turn{}}
+	current := &frontend{config: config, running: map[int]*turn{}, active: map[string][]amendment{}}
 	return errors.Join(
 		client.RegisterHandler(METHOD_OPEN, current.open),
 		client.RegisterHandler(METHOD_SEND, current.send),

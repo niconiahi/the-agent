@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	neovim "github.com/neovim/go-client/nvim"
@@ -47,9 +46,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	if running == nil {
 		return errors.New("a turn is already running in this session")
 	}
-	// A running session holds its own session.md's lease, so no agent can
-	// change it; one an agent holds is not sent until that agent ends.
-	if error := vimtool.Lease(client, prepared.directory, filepath.Join(prepared.directory, "session.md")); error != nil {
+	if error := current.begin(client, prepared.directory); error != nil {
 		current.finish(buffer)
 		return error
 	}
@@ -61,24 +58,23 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	output, error := start_stream(client, handle, text, stamped)
 	if error != nil {
 		current.finish(buffer)
-		return errors.Join(error, vimtool.Release(client, prepared.directory))
+		return errors.Join(error, vimtool.Release(client, prepared.directory), current.settle(client, prepared.directory))
 	}
 	go func() {
 		defer current.finish(buffer)
 		writer := current.start_writer(client, output, prepared.directory)
 		report, error := current.run(running.context, client, prepared, writer.handle)
-		aborted := running.context.Err() != nil
-		if aborted {
-			error = nil
+		if running.context.Err() != nil {
+			report, error = "", nil
 		}
-		succeeded := error == nil && !aborted
-		error = errors.Join(error, vimtool.Release(client, prepared.directory), writer.finish())
-		if repair_error := repair_buffer(client, handle, stamped, repaired); repair_error != nil {
-			error = errors.Join(error, repair_error)
-		}
-		if succeeded {
-			error = errors.Join(error, current.amend(client, prepared.directory, report))
-		}
+		error = errors.Join(
+			error,
+			vimtool.Release(client, prepared.directory),
+			writer.finish(),
+			repair_buffer(client, handle, stamped, repaired),
+			current.settle(client, prepared.directory),
+			current.amend(client, prepared.directory, report),
+		)
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
 		}

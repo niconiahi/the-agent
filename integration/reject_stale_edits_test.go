@@ -10,9 +10,6 @@ import (
 
 const STALE = "file changed since you read it, re-read first"
 
-// A turn whose replies are the given tool calls, one per reply, then
-// "done"; the edit at gated holds its call until the test steps it, so the
-// test can change the buffer after the tool calls before it have run.
 func start_turn_held_at(t *testing.T, gated int, calls ...message.ToolCall) (*nvimtest.Harness, *nvimtest.Provider, *nvimtest.Gate) {
 	t.Helper()
 	gate := nvimtest.NewGate()

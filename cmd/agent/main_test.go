@@ -33,3 +33,17 @@ func TestDefaultTools_OfferBashWriteOnMacOSAndLinux(t *testing.T) {
 		t.Fatalf("want bash_write among %v", names)
 	}
 }
+
+func TestMaxDepth_ComesFromTheEnvironmentAndDefaultsWhenUnset(t *testing.T) {
+	for value, want := range map[string]int{"": 0, "1": 1, " 5 ": 5} {
+		if got, error := max_depth(value); error != nil || got != want {
+			t.Errorf("max_depth(%q) = %d, %v; want %d", value, got, error, want)
+		}
+	}
+	for _, value := range []string{"0", "-2", "three"} {
+		want := `THE_AGENT_MAX_DEPTH must be a positive whole number, got "` + value + `"`
+		if _, error := max_depth(value); error == nil || error.Error() != want {
+			t.Errorf("max_depth(%q) error = %v, want %s", value, error, want)
+		}
+	}
+}
