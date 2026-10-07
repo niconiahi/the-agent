@@ -39,31 +39,11 @@ func (current *frontend) count(client *neovim.Nvim, prompt string, messages []me
 
 func (current *frontend) refresh(client *neovim.Nvim, buffer int) error {
 	handle := neovim.Buffer(buffer)
-	text, error := buffer_text(client, handle)
+	prepared, error := current.prepare(client, handle)
 	if error != nil {
 		return error
 	}
-	parsed, error := session.Parse(text)
-	if error != nil {
-		return error
-	}
-
-	parsed.StampLastUser(current.config.Now())
-	directory, error := session_dir(client, handle)
-	if error != nil {
-		return error
-	}
-
-	prompt, _ := system_prompt(parsed, directory)
-	messages := parsed.Messages()
-	if loaded, error := session.LoadImages(messages, directory); error == nil {
-		messages = loaded
-	}
-	size, error := current.count(client, prompt, messages)
-	if error != nil {
-		return error
-	}
-	return publish(client, handle, size)
+	return publish(client, handle, prepared.size)
 }
 
 func publish(client *neovim.Nvim, buffer neovim.Buffer, size tokens) error {

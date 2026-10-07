@@ -10,10 +10,11 @@ import (
 
 	"github.com/niconiahi/the-agent/message"
 	"github.com/niconiahi/the-agent/orchestrator"
-	"github.com/niconiahi/the-agent/session"
 )
 
 const LOG_LEVEL_ERROR = 4
+
+var ERROR_NOTHING_TO_SEND = errors.New("nothing to send: write your message under a ## user heading at the bottom")
 
 func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	if current.config.Ready != nil {
@@ -23,46 +24,21 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	}
 
 	handle := neovim.Buffer(buffer)
-	text, error := buffer_text(client, handle)
+	prepared, error := current.prepare(client, handle)
 	if error != nil {
 		return error
 	}
-	parsed, error := session.Parse(text)
-	if error != nil {
-		return error
+	if _, ok := prepared.last(); !ok {
+		return ERROR_NOTHING_TO_SEND
 	}
-	parsed.StampLastUser(current.config.Now())
-
-	messages := parsed.Messages()
-	if len(messages) == 0 {
-		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
+	if prepared.missing != nil {
+		return prepared.missing
 	}
-	last, ok := messages[len(messages)-1].(message.UserMessage)
-	if !ok {
-		return errors.New("nothing to send: write your message under a ## user heading at the bottom")
+	if prepared.size.above() {
+		publish(client, handle, prepared.size)
+		return ceiling_error(prepared.size)
 	}
-
-	directory, error := session_dir(client, handle)
-	if error != nil {
-		return error
-	}
-	prompt, error := system_prompt(parsed, directory)
-	if error != nil {
-		return error
-	}
-	if messages, error = session.LoadImages(messages, directory); error != nil {
-		return error
-	}
-	last = messages[len(messages)-1].(message.UserMessage)
-
-	size, error := current.count(client, prompt, messages)
-	if error != nil {
-		return error
-	}
-	if size.above() {
-		publish(client, handle, size)
-		return ceiling_error(size)
-	}
+	text, parsed := prepared.text, prepared.parsed
 
 	running := current.start(buffer)
 	if running == nil {
@@ -86,7 +62,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	go func() {
 		defer current.finish(buffer)
 		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
-		error := current.run(running.context, prompt, messages[:len(messages)-1], last, replies.handle)
+		error := current.run(running.context, prepared, replies.handle)
 		if running.context.Err() != nil {
 			error = nil
 		}
@@ -109,13 +85,14 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	return nil
 }
 
-func (current *frontend) run(invocation_context context.Context, prompt string, history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
+func (current *frontend) run(invocation_context context.Context, prepared *request, listener func(orchestrator.AgentEvent)) error {
+	history := prepared.history()
+	last, _ := prepared.last()
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
-		orchestrator.WithSystemPrompt(prompt),
+		orchestrator.WithSystemPrompt(prepared.prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
-
 		orchestrator.WithTransformContext(func(_ context.Context, messages []message.Message) []message.Message {
 			return append(append([]message.Message{}, history...), messages...)
 		}),
