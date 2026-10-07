@@ -31,6 +31,8 @@ Truncates at 5000 lines by default. If the file is longer than the limit, append
 
 Returns an error if the file doesn't exist. This is intentional — the model should know it asked for something that isn't there, rather than getting an empty result and being confused.
 
+The numbering and truncation live in `Numbered(content, arguments)`, which the buffer-backed read in `vimtool` shares. The `--nvim` binary uses that read and edit instead of these two (see `vimtool.md`).
+
 ## bash.go — BashTool
 
 Executes shell commands. Takes a `command` (required) and optional `timeout` in seconds (default 120).
@@ -47,7 +49,7 @@ Find-and-replace. Takes `path`, `old_text`, and `new_text`. Reads the file, find
 
 The key constraint: `old_text` must appear exactly once. If it's not found, error. If it appears multiple times, error. This forces the model to be precise about what it's editing — no accidental mass replacements. The model has to provide enough context in `old_text` to uniquely identify the location.
 
-Returns a simple diff showing removed lines (prefixed with `-`) and added lines (prefixed with `+`). Not a proper unified diff — just enough for the model to confirm the edit was correct.
+Returns a simple diff showing removed lines (prefixed with `-`) and added lines (prefixed with `+`). Not a proper unified diff — just enough for the model to confirm the edit was correct. The listing is `Diff(old_text, new_text)`, shared with `vimtool`'s edit.
 
 ## write.go — WriteTool
 

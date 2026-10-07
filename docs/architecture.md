@@ -14,8 +14,9 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
           orchestrator     session ──→ message
                ↑              ↑
                └──── nvim ────┘
-                      ↑
-                  cmd/agent
+                      ↑    └──→ vimtool ──→ tool
+                      │            ↑
+                  cmd/agent ───────┘
 ```
 
 **message** and **model** are the two roots. They don't import anything internal. They don't know about each other. `message` defines the data that flows through the system — what a user said, what the assistant replied, what a tool returned. `model` defines the LLM being targeted — its endpoint, its limits, its pricing.
@@ -27,6 +28,8 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
 **session** owns the `session.md` format and imports only `message`. It parses a file into the messages the model receives, with the file's timestamps in their content and orphaned tool calls or results left out, and renders turns, thinking, tool calls, tool results and image references back byte for byte. It also estimates a session's tokens against its ceiling. It knows nothing about Neovim.
 
 **nvim** is the frontend. It answers the Lua plugin's msgpack-RPC requests (`:TA`, `:TASend`, `:TAAbort`, the statusline count, the thinking folds), runs a fresh orchestrator agent per send with the parsed session as history, and streams the reply into the session buffer, which stays locked while the turn runs. `nvim/nvimtest` is its headless-Neovim harness, used by the tests in `/integration`. The Lua side (`plugin/`, `lua/the-agent/`) stays thin: it forwards commands and applies the edits Go asks for.
+
+**vimtool** holds the file tools of the `--nvim` binary, backed by Neovim buffers: `read` and `edit` go through the buffer API (in `lua/the-agent/buffer.lua`), so an agent edit is one undo block, saved at once and visible to the LSP. It imports `tool` for the tool shape and Neovim's Go client; `nvim` imports it only to put the session directory on the turn's context, and `cmd/agent` builds its tools once the client exists. It never imports `nvim`.
 
 Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool and session, then orchestrator, then nvim.
 
