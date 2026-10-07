@@ -91,13 +91,7 @@ func TestLoadImages_LeavesOtherLinksAlone(t *testing.T) {
 	messages := load(t, t.TempDir(), text)
 
 	for index, current := range messages {
-		var content []message.Content
-		switch typed := current.(type) {
-		case message.UserMessage:
-			content = typed.Content
-		case message.AssistantMessage:
-			content = typed.Content
-		}
+		content := message.ContentOf(current)
 		if len(content) != 1 {
 			t.Fatalf("message %d: want text only, got %#v", index, content)
 		}

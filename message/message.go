@@ -36,3 +36,17 @@ type ToolResultMessage struct {
 }
 
 func (ToolResultMessage) is_message() {}
+
+func ContentOf(current Message) []Content {
+	switch typed := current.(type) {
+	case UserMessage:
+		return typed.Content
+	case AssistantMessage:
+		return typed.Content
+	case *AssistantMessage:
+		return typed.Content
+	case ToolResultMessage:
+		return typed.Content
+	}
+	return nil
+}

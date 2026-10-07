@@ -193,7 +193,7 @@ func (parsed *Session) AppendAssistantMessage(model string, at time.Time, reply 
 	parsed.separate()
 	parsed.turns = append(parsed.turns, turn{
 		role:    ROLE_ASSISTANT,
-		heading: fmt.Sprintf("## assistant · %s · %s · %s tokens", model, stamp(at), thousands(reply.Usage.TotalTokens)),
+		heading: fmt.Sprintf("## assistant · %s · %s · %s tokens", model, stamp(at), FormatCount(reply.Usage.TotalTokens)),
 		body:    "\n\n" + strings.Join(blocks, "\n\n") + "\n",
 	})
 	return nil
@@ -233,13 +233,13 @@ func (parsed *Session) separate() {
 }
 
 func FormatTokens(value int) string {
-	return thousands(value) + " tokens"
+	return FormatCount(value) + " tokens"
 }
 
-func thousands(value int) string {
+func FormatCount(value int) string {
 	digits := strconv.Itoa(value)
 	if value < 0 {
-		return "-" + thousands(-value)
+		return "-" + FormatCount(-value)
 	}
 	var builder strings.Builder
 	for index, digit := range digits {

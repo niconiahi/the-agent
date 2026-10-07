@@ -24,7 +24,7 @@ func EstimateTokens(system_prompt string, messages []message.Message) int {
 	bytes := len(system_prompt)
 	images := 0
 	for _, current := range messages {
-		for _, content := range message_content(current) {
+		for _, content := range message.ContentOf(current) {
 			switch typed := content.(type) {
 			case message.TextContent:
 				bytes += len(typed.Text)
@@ -40,19 +40,3 @@ func EstimateTokens(system_prompt string, messages []message.Message) int {
 	}
 	return (bytes+BYTES_PER_TOKEN-1)/BYTES_PER_TOKEN + images*IMAGE_TOKENS
 }
-
-func message_content(current message.Message) []message.Content {
-	switch typed := current.(type) {
-	case message.UserMessage:
-		return typed.Content
-	case message.AssistantMessage:
-		return typed.Content
-	case *message.AssistantMessage:
-		return typed.Content
-	case message.ToolResultMessage:
-		return typed.Content
-	}
-	return nil
-}
-
-func FormatCount(value int) string { return thousands(value) }
