@@ -55,7 +55,7 @@ Returns a simple diff showing removed lines (prefixed with `-`) and added lines 
 
 Creates or overwrites a file. Takes `path` and `content`. Creates parent directories if they don't exist (`os.MkdirAll`). Returns a confirmation with the file path.
 
-Simple and intentionally blunt — this is a full overwrite, not an append. The model should use `edit` for surgical changes and `write` for creating new files or complete rewrites.
+Simple and intentionally blunt — this is a full overwrite, not an append. The model should use `edit` for surgical changes and `write` for creating new files or complete rewrites. The `--nvim` binary uses `vimtool`'s buffer-backed write instead (see `vimtool.md`).
 
 ## grep.go — GrepTool
 

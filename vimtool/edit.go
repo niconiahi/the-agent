@@ -37,7 +37,7 @@ func Edit(client *neovim.Nvim) tool.Tool {
 			if !ok {
 				return tool.ToolResult{}, fmt.Errorf("new_text is required")
 			}
-			edited, error := call(client, "edit", path, old_text, new_text, session_directory(invocation_context))
+			edited, error := call(client, "edit", path, old_text, new_text, session_directory(invocation_context), stamp(invocation_context))
 			if error != nil {
 				return tool.ToolResult{}, error
 			}

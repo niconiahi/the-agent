@@ -81,7 +81,7 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 
 ## Milestone: Buffer-backed file tools
 
-The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. `grep` also fills the quickfix list.
+The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. `grep` also fills the quickfix list. `write` sets a buffer's whole content, creating the file if needed, and `filter` runs a text-in, text-out command over a buffer like `:%!cmd`; both save at once as one undo block. An agent change to a buffer with my unsaved changes first saves my version to `<session>/unsaved/<path>.<timestamp>`, reloads the buffer from disk, applies the change and notifies me with the sidecar's path.
 
 ### Package: `vimtool`
 
@@ -93,7 +93,9 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 - `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
 - `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark
 - `Tools(client *neovim.Nvim) []tool.Tool` - the buffer-backed file tools
-- `WithSession(invocation_context context.Context, directory string) context.Context` - the calling agent's session directory for the tools
+- `Write(client *neovim.Nvim) tool.Tool` - buffer-backed write that creates the file if needed, one undo block, saved
+- `Filter(client *neovim.Nvim) tool.Tool` - runs a shell command over a buffer like `:%!cmd`, one undo block, saved; a failing command changes nothing
+- `WithSession(invocation_context context.Context, directory string, now func() time.Time) context.Context` - the calling agent's session directory and clock for the tools
 
 ### Package: `tool`
 
@@ -104,7 +106,7 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 ### Package: `nvim`
 
 **Methods**:
-- `run` puts the session directory on the turn's context with `vimtool.WithSession`
+- `run` puts the session directory and `Config.Now` on the turn's context with `vimtool.WithSession`
 
 ### Package: `nvim/nvimtest`
 
@@ -113,9 +115,11 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 
 ### Lua plugin
 
-- `lua/the-agent/buffer.lua` - `read`, `edit` and `release`, each one RPC request
+- `lua/the-agent/buffer.lua` - `read`, `edit`, `write`, `filter` and `release`, each one RPC request; edit, write and filter share the sidecar-and-reload step for buffers with unsaved changes
 
 ### Integration tests
 
 - `integration/fill_quickfix_from_grep_test.go` - a grep tool call fills the quickfix list with file, line and text per hit, for a directory and a single file, and the model's result is rg's output
-- `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`
+- `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`, and the sidecar and notification for a buffer with my unsaved changes
+- `integration/write_files_through_buffers_test.go` - `write` creates a file, replaces an open buffer as one undo block, and sets my unsaved changes aside in a sidecar first
+- `integration/filter_buffers_through_commands_test.go` - `filter` with `sort` and `gofmt` as one saved undo block; a failing command is a tool error that changes nothing

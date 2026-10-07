@@ -113,25 +113,81 @@ local function save(buffer)
   end)
 end
 
+local function missing(path)
+  return { error = "failed to read file: " .. path .. ": no such file" }
+end
+
+-- Writes the user's unsaved version of buffer to
+-- <session>/unsaved/<path relative to the cwd>.<stamp> and returns that path.
+local function set_aside(buffer, path, agent, stamp)
+  local relative = vim.fn.fnamemodify(path, ":."):gsub("^/+", "")
+  local sidecar = agent .. "/unsaved/" .. relative .. "." .. stamp
+  vim.fn.mkdir(vim.fn.fnamemodify(sidecar, ":h"), "p")
+  local file, message = io.open(sidecar, "wb")
+  if not file then
+    return nil, "failed to save your unsaved changes: " .. message
+  end
+  file:write(content(buffer))
+  file:close()
+  return sidecar
+end
+
+-- Gets the buffer for path ready for an agent change: the loaded buffer or
+-- a newly loaded one, holding what is on disk. Unsaved changes of the user
+-- go to a sidecar under the agent's session first, and the user is told
+-- where; the buffer is then reloaded so the change never mixes with them.
+local function prepare(path, agent, stamp)
+  local buffer = find(path) or load(path)
+  if not vim.bo[buffer].modified then
+    refresh(buffer)
+    return buffer
+  end
+  if agent == nil or agent == "" then
+    return nil, "the file has unsaved changes in the editor"
+  end
+  local sidecar, failure = set_aside(buffer, path, agent, stamp)
+  if not sidecar then
+    return nil, failure
+  end
+  vim.api.nvim_buf_call(buffer, function()
+    vim.cmd("silent edit!")
+  end)
+  require("the-agent").notify(
+    "your unsaved changes to " .. vim.fn.fnamemodify(path, ":.") .. " were saved to " .. sidecar,
+    vim.log.levels.WARN
+  )
+  return buffer
+end
+
+-- Marks the changed text with an extmark, saves and records the agent's
+-- tick. The region lets the caller inspect the change (e.g. for
+-- diagnostics) before releasing it.
+local function finish(buffer, agent, start_row, start_col, end_row, end_col)
+  local mark = vim.api.nvim_buf_set_extmark(buffer, NAMESPACE, start_row, start_col, {
+    end_row = end_row,
+    end_col = end_col,
+    right_gravity = false,
+    end_right_gravity = true,
+  })
+  save(buffer)
+  record(buffer, agent)
+  return { region = { buffer = buffer, mark = mark } }
+end
+
 -- Replaces the one occurrence of old_text, marks the new text with an
--- extmark and saves. Returns the region so the caller can inspect it (e.g.
--- for diagnostics) before releasing it.
-function M.edit(path, old_text, new_text, agent)
+-- extmark and saves.
+function M.edit(path, old_text, new_text, agent, stamp)
   if old_text == "" then
     return { error = "old_text must not be empty" }
   end
   path = resolve(path)
-  local buffer = find(path)
+  if not find(path) and vim.fn.filereadable(path) == 0 then
+    return missing(path)
+  end
+  local buffer, failure = prepare(path, agent, stamp)
   if not buffer then
-    if vim.fn.filereadable(path) == 0 then
-      return { error = "failed to read file: " .. path .. ": no such file" }
-    end
-    buffer = load(path)
+    return { error = failure }
   end
-  if vim.bo[buffer].modified then
-    return { error = "the file has unsaved changes in the editor" }
-  end
-  refresh(buffer)
 
   local text = content(buffer)
   local first, count = occurrences(text, old_text)
@@ -154,15 +210,53 @@ function M.edit(path, old_text, new_text, agent)
 
   local lines = vim.split(new_text, "\n", { plain = true })
   vim.api.nvim_buf_set_text(buffer, start_row, start_col, end_row, end_col, lines)
-  local mark = vim.api.nvim_buf_set_extmark(buffer, NAMESPACE, start_row, start_col, {
-    end_row = start_row + #lines - 1,
-    end_col = (#lines == 1 and start_col or 0) + #lines[#lines],
-    right_gravity = false,
-    end_right_gravity = true,
-  })
-  save(buffer)
-  record(buffer, agent)
-  return { region = { buffer = buffer, mark = mark } }
+  return finish(buffer, agent, start_row, start_col, start_row + #lines - 1, (#lines == 1 and start_col or 0) + #lines[#lines])
+end
+
+-- Sets the buffer's whole content, creating the file (and its directory)
+-- when it does not exist yet.
+function M.write(path, text, agent, stamp)
+  path = resolve(path)
+  vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+  local buffer, failure = prepare(path, agent, stamp)
+  if not buffer then
+    return { error = failure }
+  end
+  local ends = text:sub(-1) == "\n"
+  local lines = vim.split(ends and text:sub(1, -2) or text, "\n", { plain = true })
+  vim.api.nvim_buf_set_lines(buffer, 0, -1, true, lines)
+  if not ends and text ~= "" then
+    vim.bo[buffer].fixeol = false
+  end
+  vim.bo[buffer].eol = ends
+  return finish(buffer, agent, 0, 0, #lines - 1, #lines[#lines])
+end
+
+-- Runs command over the whole buffer like :%!command. A command that fails
+-- is undone at once, so it leaves neither text nor an undo step behind.
+function M.filter(path, command, agent, stamp)
+  path = resolve(path)
+  if not find(path) and vim.fn.filereadable(path) == 0 then
+    return missing(path)
+  end
+  local buffer, failure = prepare(path, agent, stamp)
+  if not buffer then
+    return { error = failure }
+  end
+  vim.api.nvim_buf_call(buffer, function()
+    vim.cmd("silent %!" .. vim.fn.escape(command, "%#!"))
+  end)
+  if vim.v.shell_error ~= 0 then
+    local output = content(buffer)
+    local code = vim.v.shell_error
+    vim.api.nvim_buf_call(buffer, function()
+      vim.cmd("silent undo")
+    end)
+    return { error = string.format("%s exited with %d: %s", command, code, output) }
+  end
+  local last_row = vim.api.nvim_buf_line_count(buffer) - 1
+  local last_line = vim.api.nvim_buf_get_lines(buffer, last_row, last_row + 1, true)[1]
+  return finish(buffer, agent, 0, 0, last_row, #last_line)
 end
 
 function M.release(region)
