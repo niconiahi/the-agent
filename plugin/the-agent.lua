@@ -5,7 +5,7 @@ vim.g.loaded_the_agent = true
 
 vim.api.nvim_create_user_command("TA", function(args)
   require("the-agent").open(args.args)
-end, { nargs = 1, desc = "the-agent: create or open a session" })
+end, { nargs = "?", desc = "the-agent: create or open a session" })
 
 vim.api.nvim_create_user_command("TASend", function()
   require("the-agent").send()
@@ -14,6 +14,18 @@ end, { nargs = 0, desc = "the-agent: send the current session" })
 vim.api.nvim_create_user_command("TAAbort", function()
   require("the-agent").abort()
 end, { nargs = 0, desc = "the-agent: abort the current session's turn" })
+
+-- <Plug> mappings, the stable targets for your own keys. setup() maps the
+-- default keys (config.keys) onto them.
+vim.keymap.set("n", "<Plug>(TA)", function()
+  require("the-agent").prompt()
+end, { desc = "the-agent: create or open a session" })
+vim.keymap.set("n", "<Plug>(TASend)", function()
+  require("the-agent").send()
+end, { desc = "the-agent: send the current session" })
+vim.keymap.set("n", "<Plug>(TAAbort)", function()
+  require("the-agent").abort()
+end, { desc = "the-agent: abort the current session's turn" })
 
 local group = vim.api.nvim_create_augroup("the-agent", { clear = true })
 -- `*` matches `/` in autocmd patterns, so subagent sessions match too.

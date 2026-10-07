@@ -17,14 +17,73 @@ M.config = {
   -- Set a statusline showing the token count on session windows. Turn off
   -- when your statusline plugin uses require("the-agent").statusline().
   statusline = true,
+  -- Session naming: a function from what you typed after :TA (or into the
+  -- <Plug>(TA) prompt, possibly "") to the session's name, e.g.
+  --   name = function(input) return os.date("%Y-%m-%d") .. "-" .. input end
+  -- nil uses the input as is. Either way "/" becomes "-".
+  name = nil,
+  -- Default normal-mode keys, each mapped to its <Plug>(TA…) mapping. Set one
+  -- to false to leave it unmapped, or keys = false to map none. Under
+  -- LazyVim they land in which-key's <leader>a ("ai") group.
+  keys = {
+    open = "<leader>aa", -- <Plug>(TA)
+    send = "<leader>as", -- <Plug>(TASend)
+    abort = "<leader>ax", -- <Plug>(TAAbort)
+  },
 }
 
-function M.setup(opts)
-  M.config = vim.tbl_extend("force", M.config, opts or {})
+local PLUGS = {
+  open = { plug = "<Plug>(TA)", desc = "Session (the-agent)" },
+  send = { plug = "<Plug>(TASend)", desc = "Send session (the-agent)" },
+  abort = { plug = "<Plug>(TAAbort)", desc = "Abort turn (the-agent)" },
+}
+
+-- Keys mapped by the previous setup(), removed when setup() runs again.
+local mapped = {}
+
+local function map_keys()
+  for _, lhs in ipairs(mapped) do
+    pcall(vim.keymap.del, "n", lhs)
+  end
+  mapped = {}
+  local keys = M.config.keys
+  if not keys then
+    return
+  end
+  for action, target in pairs(PLUGS) do
+    local lhs = keys[action]
+    if lhs then
+      vim.keymap.set("n", lhs, target.plug, { remap = true, desc = target.desc })
+      table.insert(mapped, lhs)
+    end
+  end
+  local ok, which_key = pcall(require, "which-key")
+  if ok and type(which_key.add) == "function" and #mapped > 0 then
+    which_key.add({ { "<leader>a", group = "ai" } })
+  end
 end
 
+function M.setup(opts)
+  opts = opts or {}
+  local keys = opts.keys
+  opts.keys = nil
+  M.config = vim.tbl_extend("force", M.config, opts)
+  if keys ~= nil then
+    -- Merge per key so overriding one keeps the other defaults.
+    M.config.keys = keys and vim.tbl_extend("force", M.config.keys or {}, keys) or false
+  end
+  map_keys()
+end
+
+-- Notifies through snacks.nvim when it is installed, vim.notify otherwise.
 function M.notify(msg, level)
-  vim.notify(msg, level or vim.log.levels.INFO, { title = "the-agent" })
+  level = level or vim.log.levels.INFO
+  local ok, snacks = pcall(require, "snacks")
+  if ok and type(snacks) == "table" and type(snacks.notify) == "function" then
+    snacks.notify(msg, { level = level, title = "the-agent" })
+    return
+  end
+  vim.notify(msg, level, { title = "the-agent" })
 end
 
 -- Line ranges ({ first, last }, 1-based) of the ```thinking blocks in lines,
@@ -95,8 +154,22 @@ local function channel()
   return chan
 end
 
+-- Opens (or creates) the session config.name makes of name.
 function M.open(name)
+  name = name or ""
+  if M.config.name then
+    name = M.config.name(name) or ""
+  end
   vim.rpcrequest(channel(), "the_agent_open", name)
+end
+
+-- Asks for a session name, then opens it (what <Plug>(TA) does).
+function M.prompt()
+  vim.ui.input({ prompt = "the-agent session: " }, function(name)
+    if name then
+      M.open(name)
+    end
+  end)
 end
 
 function M.send()
