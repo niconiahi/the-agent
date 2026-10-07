@@ -223,7 +223,7 @@ func TestAppend_RendersThinkingToolCallsAndResultsThatParseBack(t *testing.T) {
 		t.Fatalf("want 5 messages, got %d: %#v", len(messages), messages)
 	}
 	result, _ := messages[2].(message.ToolResultMessage)
-	if got := only_text(t, result.Content); got != "2026-10-06T14:33:00Z\n\n# A\n\n```go\nx\n```" {
+	if got := only_text(t, result.Content); got != "called 2026-10-06T14:33:00Z · answered 2026-10-06T14:33:00Z\n\n# A\n\n```go\nx\n```" {
 		t.Errorf("result with a code block: got %q", got)
 	}
 	failed, _ := messages[3].(message.ToolResultMessage)
@@ -290,7 +290,7 @@ func TestMessages_ToolBlocksBecomeToolCallsResultsAndThinking(t *testing.T) {
 	if result.ToolCallID != "tc_3" || result.ToolName != "edit" || result.IsError {
 		t.Errorf("tool result: got %#v", result)
 	}
-	if got := only_text(t, result.Content); got != "2026-10-06T14:33:01Z\n\nedit applied" {
+	if got := only_text(t, result.Content); got != "called 2026-10-06T14:33:00Z · answered 2026-10-06T14:33:01Z\n\nedit applied" {
 		t.Errorf("tool result text: got %q", got)
 	}
 

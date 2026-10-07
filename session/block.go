@@ -150,6 +150,7 @@ func repair(body string) string {
 func assistant_messages(info string, body string) ([]message.Message, error) {
 	messages := []message.Message{}
 	tool_names := map[string]string{}
+	call_stamps := map[string]string{}
 	var current *message.AssistantMessage
 
 	flush := func() {
@@ -188,12 +189,13 @@ func assistant_messages(info string, body string) ([]message.Message, error) {
 				}
 			}
 			tool_names[part.attrs["id"]] = part.attrs["name"]
+			call_stamps[part.attrs["id"]] = part.attrs["ts"]
 			add(message.ToolCall{ID: part.attrs["id"], Name: part.attrs["name"], Arguments: arguments})
 		case BLOCK_TOOL_RESULT:
 			flush()
 			text := part.text
-			if stamp := part.attrs["ts"]; stamp != "" {
-				text = stamp + "\n\n" + text
+			if stamps := result_stamps(call_stamps[part.attrs["id"]], part.attrs["ts"]); stamps != "" {
+				text = stamps + "\n\n" + text
 			}
 			messages = append(messages, message.ToolResultMessage{
 				ToolCallID: part.attrs["id"],
@@ -276,6 +278,17 @@ func render_tool_result(result message.ToolResultMessage, at time.Time) string {
 		}
 	}
 	return render_block(info, strings.Join(parts, "\n"))
+}
+
+func result_stamps(called string, answered string) string {
+	stamps := []string{}
+	if called != "" {
+		stamps = append(stamps, "called "+called)
+	}
+	if answered != "" {
+		stamps = append(stamps, "answered "+answered)
+	}
+	return strings.Join(stamps, " · ")
 }
 
 func stamp(at time.Time) string {
