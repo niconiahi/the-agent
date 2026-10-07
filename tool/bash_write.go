@@ -8,11 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/niconiahi/the-agent/message"
 )
@@ -25,20 +23,12 @@ type Change struct {
 	Deleted bool
 }
 
-type Clone interface {
-	Command(invocation_context context.Context, script string) *exec.Cmd
-	Changes(invocation_context context.Context) ([]Change, error)
-	Remove()
-}
-
-type Cloner func(invocation_context context.Context) (Clone, error)
-
 type Replay struct {
 	Write  func(invocation_context context.Context, path string, content string) error
 	Delete func(invocation_context context.Context, path string) error
 }
 
-func BashWriteTool(sandbox Sandbox, cloner Cloner, replay Replay) Tool {
+func BashWriteTool(sandbox Sandbox, clone Clone, replay Replay) Tool {
 	parameters := json.RawMessage(`{
 		"type": "object",
 		"properties": {
@@ -48,26 +38,24 @@ func BashWriteTool(sandbox Sandbox, cloner Cloner, replay Replay) Tool {
 		"required": ["command"]
 	}`)
 
-	description := "Run a bash command that must write the project, like go mod tidy or go generate. It runs as " + sandbox.User + " in a copy-on-write clone of the project; every file it creates, changes or deletes (outside .git) is then applied to the project as an edit. Use bash_read for anything that only reads."
-	var running sync.Mutex
+	description := "Run a bash command that must write the project, like go mod tidy or go generate. It runs as " + sandbox.User + " in a copy of the project at .the-agent/clone, brought up to date first; every file it creates, changes or deletes (outside .git) is then applied to the project as an edit. Use bash_read for anything that only reads."
 	return NewTool("bash_write", description, parameters, func(invocation_context context.Context, _ string, arguments map[string]interface{}) (ToolResult, error) {
-		running.Lock()
-		defer running.Unlock()
+		unlock := clone.lock()
+		defer unlock()
 
-		clone, error := cloner(invocation_context)
+		before, error := clone.sync(invocation_context)
 		if error != nil {
 			return ToolResult{}, explain_refusal(sandbox, error)
 		}
-		defer clone.Remove()
 
-		result, error := run_bash(invocation_context, sandbox, clone.Command, arguments)
+		result, error := run_bash(invocation_context, sandbox, clone.command, arguments)
 		if error != nil {
 			return result, error
 		}
 		if error := invocation_context.Err(); error != nil {
 			return ToolResult{}, fmt.Errorf("bash_write stopped, nothing was applied: %w", error)
 		}
-		changes, error := clone.Changes(invocation_context)
+		changes, error := clone.changes(invocation_context, before)
 		if error != nil {
 			return ToolResult{}, explain_refusal(sandbox, error)
 		}

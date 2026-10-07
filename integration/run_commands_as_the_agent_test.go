@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -88,8 +87,8 @@ func start_in_sandbox(t *testing.T, current sandbox, calls ...message.ToolCall) 
 	provider := nvimtest.RegisterProvider(t, replies...)
 	harness := nvimtest.StartWithTools(t, config, func(client *neovim.Nvim) []tool.Tool {
 		sandbox := tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: current.project}
-		cloner := tool.Clonefile(current.project, filepath.Join(sandbox.Home, "clones"), sandbox.Command)
-		return []tool.Tool{tool.BashReadTool(sandbox), tool.BashWriteTool(sandbox, cloner, vimtool.Replay(client))}
+		clone := tool.Clone{Project: current.project, Binary: binary, Run: sandbox.Command}
+		return []tool.Tool{tool.BashReadTool(sandbox), tool.BashWriteTool(sandbox, clone, vimtool.Replay(client))}
 	})
 	return harness, provider
 }
@@ -185,9 +184,6 @@ func TestBashRead_RunsGoTestWithTheAgentsCaches(t *testing.T) {
 
 func TestBashWrite_AppliesWhatTheAgentWroteInItsCloneAsAnUndoableEdit(t *testing.T) {
 	current := sandbox_project(t)
-	if runtime.GOOS != "darwin" {
-		t.Skip("bash_write clones with clonefile on macOS only")
-	}
 	if error := os.WriteFile(current.path("kept.txt"), []byte("one\n"), 0o644); error != nil {
 		t.Fatal(error)
 	}
@@ -205,8 +201,8 @@ func TestBashWrite_AppliesWhatTheAgentWroteInItsCloneAsAnUndoableEdit(t *testing
 	if results[0].IsError || !strings.HasSuffix(first, "Applied to the project:\nM "+current.relative("kept.txt")) {
 		t.Fatalf("bash_write result: %q", first)
 	}
-	clone := filepath.Base(tool.ClonePath(current.project, filepath.Join(setup.Home(), "clones")))
-	if !strings.Contains(first, clone+"\n") || strings.SplitN(first, "\n", 2)[0] != strings.SplitN(second, "\n", 2)[0] {
+	clone := filepath.Join(current.project, ".the-agent", "clone")
+	if !strings.HasPrefix(first, clone+"\n") || !strings.HasPrefix(second, clone+"\n") {
 		t.Fatalf("want both commands run in the clone %s, got %q and %q", clone, first, second)
 	}
 	if got := buffer_lines(harness, path); got != "one\ntwo\n" {
@@ -218,5 +214,31 @@ func TestBashWrite_AppliesWhatTheAgentWroteInItsCloneAsAnUndoableEdit(t *testing
 	undo(harness, path)
 	if got := buffer_lines(harness, path); got != "one\n" {
 		t.Fatalf("after one undo: %q", got)
+	}
+}
+
+func TestBashWrite_ICanDeleteWhatTheSyncCopiedIntoTheClone(t *testing.T) {
+	current := sandbox_project(t)
+	if error := os.MkdirAll(current.path("nested/deeper"), 0o755); error != nil {
+		t.Fatal(error)
+	}
+	if error := os.WriteFile(current.path("nested/deeper/file.txt"), []byte("mine\n"), 0o644); error != nil {
+		t.Fatal(error)
+	}
+	harness, provider := start_in_sandbox(t, current,
+		call("tc_1", "bash_write", map[string]any{"command": "cat " + current.relative("nested/deeper/file.txt")}),
+	)
+
+	send_agent_turn_in(harness, current.name)
+
+	if text := result_text(tool_results(t, provider)[0]); !strings.HasPrefix(text, "mine\n") {
+		t.Fatalf("want the command to read the synced file, got %q", text)
+	}
+	copied := filepath.Join(current.project, ".the-agent", "clone", current.name)
+	if error := os.RemoveAll(copied); error != nil {
+		t.Fatalf("cannot delete what the sync copied into the clone: %v", error)
+	}
+	if _, error := os.Stat(copied); !errors.Is(error, os.ErrNotExist) {
+		t.Fatalf("%s is still there: %v", copied, error)
 	}
 }

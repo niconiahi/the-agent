@@ -4,19 +4,26 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
-const MANIFEST_SCRIPT = `find . -name .git -prune -o \( -type f -o -type l \) -exec stat -f '%i %z %Fm %p %N' {} +`
-
 type Runner func(invocation_context context.Context, directory string, script string) *exec.Cmd
+
+// Clone is the project's persistent copy at <project>/.the-agent/clone, which
+// _the-agent owns. Every step runs through Run (Sandbox.Command in production)
+// with the project as the working directory, and hands its results back on
+// stdout, so nothing here needs to read the clone as me.
+type Clone struct {
+	Project string
+	Binary  string
+	Run     Runner
+}
 
 type step_failure struct {
 	stderr    string
@@ -27,44 +34,38 @@ func (failure *step_failure) Error() string {
 	return fmt.Sprintf("exit status %d: %s", failure.exit_code, strings.TrimSpace(failure.stderr))
 }
 
-type clonefile_clone struct {
-	run     Runner
-	project string
-	clones  string
-	path    string
-	before  map[string]string
+var project_locks sync.Map
+
+// lock serializes bash_write calls on one project, across tool instances.
+func (clone Clone) lock() func() {
+	value, _ := project_locks.LoadOrStore(clone.Project, &sync.Mutex{})
+	mutex := value.(*sync.Mutex)
+	mutex.Lock()
+	return mutex.Unlock
 }
 
-func ClonePath(project string, clones string) string {
-	sum := sha256.Sum256([]byte(project))
-	return filepath.Join(clones, filepath.Base(project)+"-"+hex.EncodeToString(sum[:])[:12])
+func (clone Clone) Path() string {
+	return filepath.Join(clone.Project, ".the-agent", "clone")
 }
 
-func Clonefile(project string, clones string, run Runner) Cloner {
-	return func(invocation_context context.Context) (Clone, error) {
-		clone := &clonefile_clone{run: run, project: project, clones: clones, path: ClonePath(project, clones)}
-		if error := clone.discard(invocation_context); error != nil {
-			return nil, error
-		}
-		script := "cp -c -R " + shell_quote(project) + " " + shell_quote(clone.path) + " || exit\n" + inside(clone.path, MANIFEST_SCRIPT)
-		output, error := run_step(run(invocation_context, project, script), nil)
-		if error != nil {
-			return nil, fmt.Errorf("failed to clone %s: %w", project, error)
-		}
-		clone.before, error = parse_manifest(output)
-		if error != nil {
-			return nil, error
-		}
-		return clone, nil
+// sync runs "the-agent sync <project>" and then lists the clone, in one call.
+func (clone Clone) sync(invocation_context context.Context) (map[string]string, error) {
+	script := shell_quote(clone.Binary) + " sync " + shell_quote(clone.Project) + " || exit\n" + inside(clone.Path(), MANIFEST_SCRIPT)
+	output, error := run_step(clone.Run(invocation_context, clone.Project, script), nil)
+	if error != nil {
+		return nil, fmt.Errorf("failed to sync the clone: %w", error)
 	}
+	return parse_manifest(output)
 }
 
-func (clone *clonefile_clone) Command(invocation_context context.Context, script string) *exec.Cmd {
-	return clone.run(invocation_context, clone.project, inside(clone.path, script))
+func (clone Clone) command(invocation_context context.Context, script string) *exec.Cmd {
+	return clone.Run(invocation_context, clone.Project, inside(clone.Path(), script))
 }
 
-func (clone *clonefile_clone) Changes(invocation_context context.Context) ([]Change, error) {
-	output, error := run_step(clone.run(invocation_context, clone.project, inside(clone.path, MANIFEST_SCRIPT)), nil)
+// changes lists the clone again and compares it with the listing from before
+// the command, so files I save in the project meanwhile are left alone.
+func (clone Clone) changes(invocation_context context.Context, before map[string]string) ([]Change, error) {
+	output, error := run_step(clone.Run(invocation_context, clone.Project, inside(clone.Path(), MANIFEST_SCRIPT)), nil)
 	if error != nil {
 		return nil, fmt.Errorf("failed to list the clone: %w", error)
 	}
@@ -74,14 +75,14 @@ func (clone *clonefile_clone) Changes(invocation_context context.Context) ([]Cha
 	}
 
 	changes := []Change{}
-	for path := range clone.before {
+	for path := range before {
 		if _, kept := after[path]; !kept {
 			changes = append(changes, Change{Path: path, Deleted: true})
 		}
 	}
 	fetch := []string{}
 	for path, signature := range after {
-		if clone.before[path] != signature {
+		if before[path] != signature {
 			fetch = append(fetch, path)
 		}
 	}
@@ -90,7 +91,7 @@ func (clone *clonefile_clone) Changes(invocation_context context.Context) ([]Cha
 	}
 
 	list := strings.Join(fetch, "\x00") + "\x00"
-	archive, error := run_step(clone.run(invocation_context, clone.project, inside(clone.path, "tar -c -f - --no-mac-metadata --null -T -")), []byte(list))
+	archive, error := run_step(clone.Run(invocation_context, clone.Project, inside(clone.Path(), ARCHIVE_SCRIPT)), []byte(list))
 	if error != nil {
 		return nil, fmt.Errorf("failed to read the changed files: %w", error)
 	}
@@ -99,29 +100,6 @@ func (clone *clonefile_clone) Changes(invocation_context context.Context) ([]Cha
 		return nil, error
 	}
 	return append(changes, fetched...), nil
-}
-
-func (clone *clonefile_clone) Remove() {
-	clone.discard(context.Background())
-}
-
-func (clone *clonefile_clone) discard(invocation_context context.Context) error {
-	path := shell_quote(clone.path)
-	script := "mkdir -p " + shell_quote(clone.clones) + " || exit\nif [ -e " + path + " ] || [ -L " + path + " ]; then trash=$(mktemp -d " + shell_quote(filepath.Join(clone.clones, ".removing.XXXXXX")) + ") && mv " + path + " \"$trash\"/ && echo \"$trash\"; fi"
-	output, error := run_step(clone.run(invocation_context, clone.project, script), nil)
-	if error != nil {
-		return fmt.Errorf("failed to set the previous clone aside: %w", error)
-	}
-	trash := strings.TrimSpace(string(output))
-	if trash == "" {
-		return nil
-	}
-	removal := clone.run(context.Background(), clone.project, "rm -rf "+shell_quote(trash))
-	if error := removal.Start(); error != nil {
-		return nil
-	}
-	go removal.Wait()
-	return nil
 }
 
 func inside(directory string, script string) string {

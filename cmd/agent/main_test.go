@@ -7,7 +7,7 @@ import (
 
 func tool_names(t *testing.T) map[string]bool {
 	names := map[string]bool{}
-	for _, current := range default_tools(nil, t.TempDir()) {
+	for _, current := range default_tools(nil, t.TempDir(), "/usr/local/bin/the-agent") {
 		names[current.Name] = true
 	}
 	return names
@@ -24,9 +24,9 @@ func TestDefaultTools_RunCommandsThroughBashReadOnly(t *testing.T) {
 	}
 }
 
-func TestDefaultTools_OfferBashWriteOnMacOS(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("bash_write clones with clonefile on macOS only")
+func TestDefaultTools_OfferBashWriteOnMacOSAndLinux(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("bash_write is registered on macOS and Linux")
 	}
 
 	if names := tool_names(t); !names["bash_write"] {
