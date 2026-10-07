@@ -20,7 +20,6 @@ func edit_call(id string, path string, old_text string, new_text string) message
 	return call(id, "edit", map[string]any{"path": path, "old_text": old_text, "new_text": new_text})
 }
 
-// The folder of the child whose job starts with job, under the session foo.
 func child_folder(harness *nvimtest.Harness, job string) string {
 	harness.T.Helper()
 	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(nvim.SessionPath(harness.Dir, "foo")), "*-"+job))

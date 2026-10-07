@@ -52,7 +52,9 @@ func TestTASend_ContinuingAChildAmendsTheResultOfItsTaskCallWhereverItsLinkIs(t 
 	call := "```tool_call id=t1 name=task ts=2026-10-06T14:32:00Z\n"
 	for name, move := range map[string]func(string) string{
 		"removed": func(text string) string { return strings.Replace(text, link, "", 1) },
-		"moved":   func(text string) string { return strings.Replace(strings.Replace(text, link, "", 1), call, link+call, 1) },
+		"moved": func(text string) string {
+			return strings.Replace(strings.Replace(text, link, "", 1), call, link+call, 1)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			harness, _ := start_delegating(t,

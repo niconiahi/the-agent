@@ -26,7 +26,7 @@ const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit fil
 
 const MAX_DEPTH_VARIABLE = "THE_AGENT_MAX_DEPTH"
 
-const USAGE =`the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
+const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
 
 Install the plugin (see extras/lazy.lua for a lazy.nvim spec), then use
 :TA <name> to open a session, :TASend to send it and :TAAbort to stop a turn.
