@@ -55,18 +55,17 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		return error
 	}
 
+	output := start_stream(client, handle, stamped)
 	go func() {
 		defer current.finish(buffer)
-		replies, error := current.run(messages[:len(messages)-1], last)
+		replies := &reply_writer{output: output, model: current.config.Model.ID, now: current.config.Now}
+		error := current.run(messages[:len(messages)-1], last, replies.handle)
 
-		for _, reply := range replies {
-			parsed.AppendAssistant(current.config.Model.ID, current.config.Now(), reply.Usage.TotalTokens, reply_text(reply))
+		if replies.wrote {
+			output.begin("## user\n")
 		}
-		if len(replies) > 0 {
-			parsed.AppendUser()
-			if append_error := append_tail(client, handle, stamped, parsed.Render()); append_error != nil {
-				error = errors.Join(error, append_error)
-			}
+		if finish_error := output.finish(); finish_error != nil {
+			error = errors.Join(error, finish_error)
 		}
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
@@ -75,9 +74,9 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	return nil
 }
 
-// run sends history plus last to the model and returns the assistant
-// replies that have text.
-func (current *frontend) run(history []message.Message, last message.UserMessage) ([]*message.AssistantMessage, error) {
+// run sends history plus last to the model, passing every agent event to
+// listener, and returns when the turn chain ends.
+func (current *frontend) run(history []message.Message, last message.UserMessage, listener func(orchestrator.AgentEvent)) error {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
@@ -90,19 +89,8 @@ func (current *frontend) run(history []message.Message, last message.UserMessage
 		}),
 	)
 
-	replies := []*message.AssistantMessage{}
-	agent.Subscribe(func(event orchestrator.AgentEvent) {
-		end, ok := event.(orchestrator.MessageEndEvent)
-		if !ok {
-			return
-		}
-		if reply, ok := end.Message.(*message.AssistantMessage); ok && reply_text(reply) != "" {
-			replies = append(replies, reply)
-		}
-	})
-
-	error := agent.Prompt(context.Background(), last)
-	return replies, error
+	agent.Subscribe(listener)
+	return agent.Prompt(context.Background(), last)
 }
 
 func (current *frontend) start(buffer int) bool {
@@ -119,16 +107,6 @@ func (current *frontend) finish(buffer int) {
 	current.mutex.Lock()
 	defer current.mutex.Unlock()
 	delete(current.running, buffer)
-}
-
-func reply_text(reply *message.AssistantMessage) string {
-	parts := []string{}
-	for _, content := range reply.Content {
-		if text, ok := content.(message.TextContent); ok && strings.TrimSpace(text.Text) != "" {
-			parts = append(parts, strings.TrimSpace(text.Text))
-		}
-	}
-	return strings.Join(parts, "\n\n")
 }
 
 // buffer_text is the buffer as it would be written to disk.
@@ -169,22 +147,6 @@ func replace_changed_line(client *neovim.Nvim, buffer neovim.Buffer, before stri
 		}
 	}
 	return nil
-}
-
-// append_tail appends what after adds past before to the end of the buffer
-// and saves it.
-func append_tail(client *neovim.Nvim, buffer neovim.Buffer, before string, after string) error {
-	tail, ok := strings.CutPrefix(after, before)
-	if !ok {
-		return fmt.Errorf("internal error: rendered session does not extend the buffer")
-	}
-	if tail == "" {
-		return nil
-	}
-	batch := client.NewBatch()
-	batch.SetBufferLines(buffer, -1, -1, true, to_lines(tail))
-	batch.ExecLua(`vim.api.nvim_buf_call(..., function() vim.cmd("silent write") end)`, nil, int(buffer))
-	return batch.Execute()
 }
 
 func notify(client *neovim.Nvim, text string, level int) {

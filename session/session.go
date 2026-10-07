@@ -184,6 +184,11 @@ func (parsed *Session) separate() {
 	}
 }
 
+// FormatTokens is a token count as written in a heading: "1,240 tokens".
+func FormatTokens(value int) string {
+	return thousands(value) + " tokens"
+}
+
 func thousands(value int) string {
 	digits := strconv.Itoa(value)
 	if value < 0 {
