@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/niconiahi/the-agent/clone"
+	"github.com/niconiahi/the-agent/layout"
 )
 
 func project_with(t *testing.T, files map[string]string) string {
@@ -17,7 +18,7 @@ func project_with(t *testing.T, files map[string]string) string {
 		t.Fatal(error)
 	}
 	write_files(t, project, files)
-	if error := os.MkdirAll(clone.Path(project), 0o700); error != nil {
+	if error := os.MkdirAll(layout.Clone(project), 0o700); error != nil {
 		t.Fatal(error)
 	}
 	return project
@@ -38,7 +39,7 @@ func write_files(t *testing.T, root string, files map[string]string) {
 
 func sync(t *testing.T, project string) clone.Report {
 	t.Helper()
-	report, error := clone.Sync(project, clone.Path(project))
+	report, error := clone.Sync(project, layout.Clone(project))
 	if error != nil {
 		t.Fatalf("sync failed: %v", error)
 	}
@@ -83,7 +84,7 @@ func same_trees(t *testing.T, project string) {
 			delete(want, path)
 		}
 	}
-	got := tree(t, clone.Path(project))
+	got := tree(t, layout.Clone(project))
 	if len(want) != len(got) {
 		t.Fatalf("want the clone to hold %v, got %v", want, got)
 	}
@@ -105,7 +106,7 @@ func TestSync_CopiesTheProjectWithItsGitButWithoutTheAgentFolder(t *testing.T) {
 	sync(t, project)
 
 	same_trees(t, project)
-	if _, error := os.Stat(filepath.Join(clone.Path(project), ".the-agent")); !os.IsNotExist(error) {
+	if _, error := os.Stat(filepath.Join(layout.Clone(project), ".the-agent")); !os.IsNotExist(error) {
 		t.Fatalf("the clone must not hold .the-agent: %v", error)
 	}
 }
@@ -150,7 +151,7 @@ func TestSync_UndoesWhatACommandDidInTheClone(t *testing.T) {
 		"deleted/file.txt": "deleted\n",
 	})
 	sync(t, project)
-	cloned := clone.Path(project)
+	cloned := layout.Clone(project)
 	write_files(t, cloned, map[string]string{
 		"edited.txt":         "the command's\n",
 		"new.txt":            "new\n",
@@ -211,7 +212,7 @@ func TestSync_ASyncInterruptedHalfwayIsCompletedByTheNextOne(t *testing.T) {
 	if error := os.Chmod(blocked, 0); error != nil {
 		t.Fatal(error)
 	}
-	if _, error := clone.Sync(project, clone.Path(project)); error == nil {
+	if _, error := clone.Sync(project, layout.Clone(project)); error == nil {
 		t.Skip("the unreadable file was read anyway (running as root?)")
 	}
 	if error := os.Chmod(blocked, 0o644); error != nil {

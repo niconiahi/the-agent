@@ -7,12 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 
 	neovim "github.com/neovim/go-client/nvim"
 
+	"github.com/niconiahi/the-agent/layout"
 	"github.com/niconiahi/the-agent/message"
 	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
@@ -32,7 +33,6 @@ var local_build struct {
 	error  error
 }
 
-// local_binary builds the-agent once per test run, for its sync subcommand.
 func local_binary(t *testing.T) string {
 	t.Helper()
 	local_build.once.Do(func() {
@@ -73,7 +73,7 @@ func start_with_local_bash_write(t *testing.T, config nvim.Config, calls ...mess
 			project = directory
 		}
 		clone := tool.Clone{Project: project, Binary: binary, Run: run_locally}
-		if error := os.MkdirAll(clone.Path(), 0o700); error != nil {
+		if error := os.MkdirAll(layout.Clone(project), 0o700); error != nil {
 			t.Fatal(error)
 		}
 		sandbox := tool.Sandbox{User: "_the-agent", Home: t.TempDir(), Project: project}

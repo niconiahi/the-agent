@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/niconiahi/the-agent/layout"
 	"github.com/niconiahi/the-agent/message"
+	"github.com/niconiahi/the-agent/setup"
 )
 
 const DEFAULT_BASH_TIMEOUT = 120 * time.Second
 const BASH_STOP_GRACE = 5 * time.Second
-
-var SUDO_REFUSALS = []string{"a password is required", "unknown user", "not allowed", "is not in the sudoers file"}
 
 type Sandbox struct {
 	User    string
@@ -30,9 +29,9 @@ func (sandbox Sandbox) Environment() []string {
 	return []string{
 		"HOME=" + sandbox.Home,
 		"PATH=" + os.Getenv("PATH"),
-		"TMPDIR=" + filepath.Join(sandbox.Project, ".the-agent", "tmp"),
-		"GOCACHE=" + filepath.Join(sandbox.Home, "gocache"),
-		"GOMODCACHE=" + filepath.Join(sandbox.Home, "gomodcache"),
+		"TMPDIR=" + layout.Tmp(sandbox.Project),
+		"GOCACHE=" + filepath.Join(sandbox.Home, layout.GO_CACHE),
+		"GOMODCACHE=" + filepath.Join(sandbox.Home, layout.GO_MODULE_CACHE),
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=safe.directory",
 		"GIT_CONFIG_VALUE_0=*",
@@ -83,35 +82,21 @@ func run_bash(invocation_context context.Context, sandbox Sandbox, start func(co
 	command_context, cancel := context.WithTimeout(invocation_context, timeout)
 	defer cancel()
 
-	command := start(command_context, script)
-
-	var stdout_buffer bytes.Buffer
-	var stderr_buffer bytes.Buffer
-	command.Stdout = &stdout_buffer
-	command.Stderr = &stderr_buffer
-
-	error := command.Run()
-
-	exit_code := 0
+	result, error := capture(start(command_context, script), nil)
 	if error != nil {
-		exit_error, ok := error.(*exec.ExitError)
-		if !ok {
-			return ToolResult{}, fmt.Errorf("failed to run command: %v", error)
-		}
-		exit_code = exit_error.ExitCode()
+		return ToolResult{}, fmt.Errorf("failed to run command: %v", error)
 	}
 
-	stderr_output := stderr_buffer.String()
-	if exit_code == 1 && stdout_buffer.Len() == 0 && sudo_refused(stderr_output) {
-		return ToolResult{}, setup_error(sandbox, stderr_output)
+	if result.exit_code == 1 && len(result.stdout) == 0 && sudo_refused(result.stderr) {
+		return ToolResult{}, setup_error(sandbox, result.stderr)
 	}
 
-	output := stdout_buffer.String()
-	if stderr_output != "" {
+	output := string(result.stdout)
+	if result.stderr != "" {
 		if output != "" {
 			output += "\n"
 		}
-		output += stderr_output
+		output += result.stderr
 	}
 
 	if len(output) > MAX_OUTPUT_BYTES {
@@ -120,7 +105,7 @@ func run_bash(invocation_context context.Context, sandbox Sandbox, start func(co
 
 	return ToolResult{
 		Content: []message.Content{message.TextContent{Text: output}},
-		Details: map[string]interface{}{"exit_code": exit_code},
+		Details: map[string]interface{}{"exit_code": result.exit_code},
 	}, nil
 }
 
@@ -129,13 +114,5 @@ func setup_error(sandbox Sandbox, stderr string) error {
 }
 
 func sudo_refused(stderr string) bool {
-	if !strings.HasPrefix(stderr, "sudo: ") {
-		return false
-	}
-	for _, refusal := range SUDO_REFUSALS {
-		if strings.Contains(stderr, refusal) {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(stderr, "sudo: ") && setup.Refused(stderr)
 }

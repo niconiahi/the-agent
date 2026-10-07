@@ -16,12 +16,6 @@ const SUDOERS_DRAFT = SUDOERS + ".tmp"
 const SYSTEM_DARWIN = "darwin"
 const SYSTEM_LINUX = "linux"
 
-var CACHES = []string{"gocache", "gomodcache"}
-
-const FOLDER = ".the-agent"
-
-var OWNED = []string{"clone", "tmp"}
-
 var ERROR_NOT_ROOT = errors.New("setup changes system users, sudoers and ACLs: run it as sudo the-agent setup, or add --dry-run to see the commands")
 var ERROR_ALL_WITHOUT_UNINSTALL = errors.New("--all only goes with --uninstall")
 
@@ -45,23 +39,23 @@ type Shell interface {
 }
 
 type Command struct {
-	Args  []string
-	Input string
+	Arguments []string
+	Input     string
 }
 
 func (command Command) String() string {
-	words := make([]string, len(command.Args))
-	for index, argument := range command.Args {
-		words[index] = quote(argument)
+	words := make([]string, len(command.Arguments))
+	for index, argument := range command.Arguments {
+		words[index] = Quote(argument)
 	}
 	line := strings.Join(words, " ")
 	if command.Input != "" {
-		line += " <<< " + quote(strings.TrimSuffix(command.Input, "\n"))
+		line += " <<< " + Quote(strings.TrimSuffix(command.Input, "\n"))
 	}
 	return line
 }
 
-func quote(word string) string {
+func Quote(word string) string {
 	if word != "" && strings.Trim(word, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
 		return word
 	}
@@ -69,7 +63,7 @@ func quote(word string) string {
 }
 
 func command(arguments ...string) Command {
-	return Command{Args: arguments}
+	return Command{Arguments: arguments}
 }
 
 type options struct {

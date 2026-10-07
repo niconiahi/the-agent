@@ -8,17 +8,17 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/niconiahi/the-agent/layout"
+	"github.com/niconiahi/the-agent/setup"
 )
+
+const FOLDERS_SCRIPT = `find . -mindepth 1 \( -path ./.the-agent -o -name .git \) -prune -o -type d -print`
 
 type Runner func(invocation_context context.Context, directory string, script string) *exec.Cmd
 
-// Clone is the project's persistent copy at <project>/.the-agent/clone, which
-// _the-agent owns. Every step runs through Run (Sandbox.Command in production)
-// with the project as the working directory, and hands its results back on
-// stdout, so nothing here needs to read the clone as me.
 type Clone struct {
 	Project string
 	Binary  string
@@ -34,9 +34,13 @@ func (failure *step_failure) Error() string {
 	return fmt.Sprintf("exit status %d: %s", failure.exit_code, strings.TrimSpace(failure.stderr))
 }
 
+type manifest struct {
+	files   map[string]string
+	folders map[string]bool
+}
+
 var project_locks sync.Map
 
-// lock serializes bash_write calls on one project, across tool instances.
 func (clone Clone) lock() func() {
 	value, _ := project_locks.LoadOrStore(clone.Project, &sync.Mutex{})
 	mutex := value.(*sync.Mutex)
@@ -44,28 +48,21 @@ func (clone Clone) lock() func() {
 	return mutex.Unlock
 }
 
-func (clone Clone) Path() string {
-	return filepath.Join(clone.Project, ".the-agent", "clone")
-}
-
-// sync runs "the-agent sync <project>" and then lists the clone, in one call.
-func (clone Clone) sync(invocation_context context.Context) (map[string]string, error) {
-	script := shell_quote(clone.Binary) + " sync " + shell_quote(clone.Project) + " || exit\n" + inside(clone.Path(), MANIFEST_SCRIPT)
+func (clone Clone) sync(invocation_context context.Context) (manifest, error) {
+	script := setup.Quote(clone.Binary) + " sync " + setup.Quote(clone.Project) + " || exit\n" + inside(layout.Clone(clone.Project), listing_script())
 	output, error := run_step(clone.Run(invocation_context, clone.Project, script), nil)
 	if error != nil {
-		return nil, fmt.Errorf("failed to sync the clone: %w", error)
+		return manifest{}, fmt.Errorf("failed to sync the clone: %w", error)
 	}
 	return parse_manifest(output)
 }
 
 func (clone Clone) command(invocation_context context.Context, script string) *exec.Cmd {
-	return clone.Run(invocation_context, clone.Project, inside(clone.Path(), script))
+	return clone.Run(invocation_context, clone.Project, inside(layout.Clone(clone.Project), script))
 }
 
-// changes lists the clone again and compares it with the listing from before
-// the command, so files I save in the project meanwhile are left alone.
-func (clone Clone) changes(invocation_context context.Context, before map[string]string) ([]Change, error) {
-	output, error := run_step(clone.Run(invocation_context, clone.Project, inside(clone.Path(), MANIFEST_SCRIPT)), nil)
+func (clone Clone) changes(invocation_context context.Context, before manifest) ([]Change, error) {
+	output, error := run_step(clone.Run(invocation_context, clone.Project, inside(layout.Clone(clone.Project), listing_script())), nil)
 	if error != nil {
 		return nil, fmt.Errorf("failed to list the clone: %w", error)
 	}
@@ -75,14 +72,19 @@ func (clone Clone) changes(invocation_context context.Context, before map[string
 	}
 
 	changes := []Change{}
-	for path := range before {
-		if _, kept := after[path]; !kept {
+	for path := range before.folders {
+		if !after.folders[path] {
+			changes = append(changes, Change{Path: path, Deleted: true, Folder: true})
+		}
+	}
+	for path := range before.files {
+		if _, kept := after.files[path]; !kept {
 			changes = append(changes, Change{Path: path, Deleted: true})
 		}
 	}
 	fetch := []string{}
-	for path, signature := range after {
-		if before[path] != signature {
+	for path, signature := range after.files {
+		if before.files[path] != signature {
 			fetch = append(fetch, path)
 		}
 	}
@@ -91,7 +93,7 @@ func (clone Clone) changes(invocation_context context.Context, before map[string
 	}
 
 	list := strings.Join(fetch, "\x00") + "\x00"
-	archive, error := run_step(clone.Run(invocation_context, clone.Project, inside(clone.Path(), ARCHIVE_SCRIPT)), []byte(list))
+	archive, error := run_step(clone.Run(invocation_context, clone.Project, inside(layout.Clone(clone.Project), ARCHIVE_SCRIPT)), []byte(list))
 	if error != nil {
 		return nil, fmt.Errorf("failed to read the changed files: %w", error)
 	}
@@ -102,15 +104,21 @@ func (clone Clone) changes(invocation_context context.Context, before map[string
 	return append(changes, fetched...), nil
 }
 
+func listing_script() string {
+	return MANIFEST_SCRIPT + " && " + FOLDERS_SCRIPT
+}
+
 func inside(directory string, script string) string {
-	return "cd " + shell_quote(directory) + " || exit\n" + script
+	return "cd " + setup.Quote(directory) + " || exit\n" + script
 }
 
-func shell_quote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+type captured struct {
+	stdout    []byte
+	stderr    string
+	exit_code int
 }
 
-func run_step(command *exec.Cmd, input []byte) ([]byte, error) {
+func capture(command *exec.Cmd, input []byte) (captured, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
@@ -118,29 +126,47 @@ func run_step(command *exec.Cmd, input []byte) ([]byte, error) {
 	if input != nil {
 		command.Stdin = bytes.NewReader(input)
 	}
-	if error := command.Run(); error != nil {
-		var exit_error *exec.ExitError
-		if errors.As(error, &exit_error) {
-			return nil, &step_failure{stderr: stderr.String(), exit_code: exit_error.ExitCode()}
-		}
-		return nil, error
+	error := command.Run()
+	result := captured{stdout: stdout.Bytes(), stderr: stderr.String()}
+	if error == nil {
+		return result, nil
 	}
-	return stdout.Bytes(), nil
+	var exit_error *exec.ExitError
+	if !errors.As(error, &exit_error) {
+		return result, error
+	}
+	result.exit_code = exit_error.ExitCode()
+	return result, nil
 }
 
-func parse_manifest(output []byte) (map[string]string, error) {
-	manifest := map[string]string{}
+func run_step(command *exec.Cmd, input []byte) ([]byte, error) {
+	result, error := capture(command, input)
+	if error != nil {
+		return nil, error
+	}
+	if result.exit_code != 0 {
+		return nil, &step_failure{stderr: result.stderr, exit_code: result.exit_code}
+	}
+	return result.stdout, nil
+}
+
+func parse_manifest(output []byte) (manifest, error) {
+	parsed := manifest{files: map[string]string{}, folders: map[string]bool{}}
 	for _, line := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
 		if line == "" {
 			continue
 		}
+		if folder, found := strings.CutPrefix(line, "./"); found {
+			parsed.folders[folder] = true
+			continue
+		}
 		fields := strings.SplitN(line, " ", 5)
 		if len(fields) != 5 || !strings.HasPrefix(fields[4], "./") {
-			return nil, fmt.Errorf("cannot read the clone listing at %q: file names with newlines are not supported", line)
+			return manifest{}, fmt.Errorf("cannot read the clone listing at %q: file names with newlines are not supported", line)
 		}
-		manifest[strings.TrimPrefix(fields[4], "./")] = strings.Join(fields[:4], " ")
+		parsed.files[strings.TrimPrefix(fields[4], "./")] = strings.Join(fields[:4], " ")
 	}
-	return manifest, nil
+	return parsed, nil
 }
 
 func read_archive(archive []byte) ([]Change, error) {

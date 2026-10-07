@@ -42,8 +42,24 @@ func platform_for(system string) (platform, error) {
 	return nil, ERROR_UNSUPPORTED_SYSTEM
 }
 
+var SUDO_REFUSALS = []string{"password is required", "unknown user", "not allowed", "is not in the sudoers file"}
+
+func Refused(output string) bool {
+	for _, refusal := range SUDO_REFUSALS {
+		if strings.Contains(output, refusal) {
+			return true
+		}
+	}
+	return false
+}
+
+func Supported(system string) bool {
+	_, error := platform_for(system)
+	return error == nil
+}
+
 func diagnose_common(project string, output string) error {
-	if strings.Contains(output, "password is required") || strings.Contains(output, "unknown user") || strings.Contains(output, "not allowed") {
+	if Refused(output) {
 		return fmt.Errorf("sudo -n -u %s is not allowed yet (%s): run sudo the-agent setup", USER, strings.TrimSpace(output))
 	}
 	return fmt.Errorf("%s cannot read %s (%s): run sudo the-agent setup %s", USER, project, strings.TrimSpace(output), project)

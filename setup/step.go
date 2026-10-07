@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/niconiahi/the-agent/layout"
 )
 
 type step struct {
@@ -51,6 +53,9 @@ func (current *machine) apply(steps []step, words outcome) error {
 }
 
 func (current *machine) install(project string) error {
+	if error := current.refuse_links(project); error != nil {
+		return error
+	}
 	user, error := current.user_step()
 	if error != nil {
 		return error
@@ -82,42 +87,84 @@ func (current *machine) user_step() (step, error) {
 }
 
 func (current *machine) sudoers_step() step {
-	_, exists := current.probe("test", "-f", SUDOERS)
-	line := fmt.Sprintf("%s ALL=(%s) NOPASSWD: ALL\n", current.host.Invoker, USER)
-	return step{
-		label: SUDOERS,
-		done:  exists,
-		commands: []Command{
-			{Args: []string{"tee", SUDOERS_DRAFT}, Input: line},
-			command("chmod", "0440", SUDOERS_DRAFT),
-			command("visudo", "-cf", SUDOERS_DRAFT),
-			command("mv", SUDOERS_DRAFT, SUDOERS),
-		},
-		on_failure: []Command{command("rm", "-f", SUDOERS_DRAFT)},
+	line := fmt.Sprintf("%s ALL=(%s) NOPASSWD: ALL", current.host.Invoker, USER)
+	content, readable := current.probe("cat", SUDOERS)
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	each := step{label: SUDOERS, done: contains(lines, line)}
+	if !readable {
+		_, each.done = current.probe("test", "-f", SUDOERS)
+		content = ""
 	}
+	if each.done {
+		return each
+	}
+	if content = strings.TrimSpace(content); content != "" {
+		content += "\n"
+	}
+	each.commands = []Command{
+		{Arguments: []string{"tee", SUDOERS_DRAFT}, Input: content + line + "\n"},
+		command("chmod", "0440", SUDOERS_DRAFT),
+		command("visudo", "-cf", SUDOERS_DRAFT),
+		command("mv", SUDOERS_DRAFT, SUDOERS),
+	}
+	each.on_failure = []Command{command("rm", "-f", SUDOERS_DRAFT)}
+	return each
+}
+
+type listing struct {
+	mode  string
+	owner string
+}
+
+func (current *machine) list(path string) (listing, bool) {
+	output, found := current.probe("ls", "-ld", path)
+	fields := strings.Fields(output)
+	if !found || len(fields) < 3 || len(fields[0]) < 10 {
+		return listing{}, false
+	}
+	return listing{mode: fields[0][:10], owner: fields[2]}, true
 }
 
 func (current *machine) caches_step() step {
 	home := current.platform.home()
-	directories := make([]string, len(CACHES))
-	for index, name := range CACHES {
+	directories := make([]string, len(layout.CACHES))
+	for index, name := range layout.CACHES {
 		directories[index] = filepath.Join(home, name)
 	}
-	exists := true
-	for _, directory := range directories {
-		if _, found := current.probe("test", "-d", directory); !found {
-			exists = false
-		}
-	}
-	return step{
-		label: fmt.Sprintf("caches %s/{%s}", home, strings.Join(CACHES, ",")),
-		done:  exists,
+	each := step{
+		label: fmt.Sprintf("home %s owned by root, caches {%s} owned by %s", home, strings.Join(layout.CACHES, ","), USER),
+		done:  true,
 		commands: []Command{
-			command(append([]string{"mkdir", "-p"}, directories...)...),
-			command("chown", "-R", USER+":"+USER, home),
-			command("chmod", "0700", home),
+			command("mkdir", "-p", home),
+			command("chown", "0:0", home),
+			command("chmod", "0755", home),
 		},
 	}
+	if found, exists := current.list(home); !exists || found.owner != "root" || found.mode != "drwxr-xr-x" {
+		each.done = false
+	}
+	for _, directory := range directories {
+		found, exists := current.list(directory)
+		if !exists || found.owner != USER || found.mode[0] != 'd' {
+			each.done = false
+		}
+		if exists && found.mode[0] != 'd' {
+			each.commands = append(each.commands, command("rm", "-f", directory))
+		}
+	}
+	if found, exists := current.list(current.registry()); exists && (found.owner != "root" || found.mode[0] != '-') {
+		each.done = false
+		each.commands = append(each.commands, command("rm", "-f", current.registry()))
+		if projects := current.projects(); len(projects) > 0 {
+			each.commands = append(each.commands, current.rewrite_registry(projects))
+		}
+	}
+	each.commands = append(each.commands,
+		command(append([]string{"mkdir", "-p"}, directories...)...),
+		command(append([]string{"chown", USER + ":" + USER}, directories...)...),
+		command(append([]string{"chmod", "0700"}, directories...)...),
+	)
+	return each
 }
 
 func (current *machine) read_step(project string) step {
@@ -128,25 +175,40 @@ func (current *machine) read_step(project string) step {
 		each.commands = append(each.commands, current.platform.grant_read(project)...)
 	}
 	if !registered {
-		each.commands = append(each.commands, Command{Args: []string{"tee", "-a", current.registry()}, Input: project + "\n"})
+		each.commands = append(each.commands, Command{Arguments: []string{"tee", "-a", current.registry()}, Input: project + "\n"})
 	}
 	return each
 }
 
 func owned(project string) []string {
-	directories := make([]string, len(OWNED))
-	for index, name := range OWNED {
-		directories[index] = filepath.Join(project, FOLDER, name)
+	directories := make([]string, len(layout.OWNED))
+	for index, name := range layout.OWNED {
+		directories[index] = filepath.Join(layout.Folder(project), name)
 	}
 	return directories
 }
 
+func (current *machine) refuse_links(project string) error {
+	for _, path := range append([]string{project, layout.Folder(project)}, owned(project)...) {
+		if _, link := current.probe("test", "-L", path); link {
+			return fmt.Errorf("refusing %s: %s is a symbolic link", project, path)
+		}
+		if _, exists := current.probe("test", "-e", path); !exists {
+			continue
+		}
+		if _, folder := current.probe("test", "-d", path); !folder {
+			return fmt.Errorf("refusing %s: %s is not a folder", project, path)
+		}
+	}
+	return nil
+}
+
 func (current *machine) owned_step(project string) step {
 	invoker := current.host.Invoker
-	folder := filepath.Join(project, FOLDER)
+	folder := layout.Folder(project)
 	directories := owned(project)
 	each := step{
-		label: fmt.Sprintf("%s/{%s} owned by %s, full control for %s", folder, strings.Join(OWNED, ","), USER, invoker),
+		label: fmt.Sprintf("%s/{%s} owned by %s, full control for %s", folder, strings.Join(layout.OWNED, ","), USER, invoker),
 		done:  true,
 	}
 	for _, directory := range directories {
@@ -256,6 +318,9 @@ func (current *machine) check(project string) error {
 }
 
 func (current *machine) uninstall(project string) error {
+	if error := current.refuse_links(project); error != nil {
+		return error
+	}
 	others := without(current.projects(), project)
 	granted := current.platform.has_read(current, project)
 	registered := contains(current.projects(), project)
@@ -287,6 +352,9 @@ func (current *machine) uninstall_all() error {
 	var steps []step
 	var directories []string
 	for _, project := range current.projects() {
+		if error := current.refuse_links(project); error != nil {
+			return error
+		}
 		steps = append(steps, current.remove_owned_step(project))
 		read := step{label: fmt.Sprintf("ACL read on %s", project), done: !current.platform.has_read(current, project)}
 		if !read.done {
@@ -321,7 +389,7 @@ func (current *machine) uninstall_all() error {
 
 func (current *machine) remove_owned_step(project string) step {
 	directories := owned(project)
-	each := step{label: fmt.Sprintf("%s/{%s}", filepath.Join(project, FOLDER), strings.Join(OWNED, ",")), done: true}
+	each := step{label: fmt.Sprintf("%s/{%s}", layout.Folder(project), strings.Join(layout.OWNED, ",")), done: true}
 	for _, directory := range directories {
 		if _, found := current.probe("test", "-e", directory); found {
 			each.done = false
@@ -364,7 +432,7 @@ func (current *machine) rewrite_registry(projects []string) Command {
 	if len(projects) == 0 {
 		return command("rm", "-f", current.registry())
 	}
-	return Command{Args: []string{"tee", current.registry()}, Input: strings.Join(projects, "\n") + "\n"}
+	return Command{Arguments: []string{"tee", current.registry()}, Input: strings.Join(projects, "\n") + "\n"}
 }
 
 func parents(home string, project string) []string {
