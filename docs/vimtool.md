@@ -2,7 +2,9 @@
 
 The file tools of the `--nvim` binary, backed by Neovim buffers instead of `os.WriteFile`. When the agent changes a file, the change lands in the buffer I may be looking at, one `u` takes it back, the LSP sees it as an ordinary buffer change, and it is saved at once so `bash`, `grep` and builds read it from disk too. `find`, `ls` and `bash` stay in `tool`; `Grep` here wraps `tool`'s grep and fills the quickfix list with its hits (see `tool.md`).
 
-Each tool is built with the Neovim client it talks to (`Read(client)`, `Edit(client)`, `Tools(client)` for all of them), so `cmd/agent` builds them after it connects and tests bind them to the harness with `nvimtest.StartWithTools(t, config, vimtool.Tools)`. The logic runs in Lua, `lua/the-agent/buffer.lua`, one function per tool step, so each step is a single RPC request. Everything one request changes is one undo block, which is what makes an agent edit exactly one `u`.
+Each tool is built with the Neovim client it talks to (`Read(client)`, `Edit(client)`, `Write(client)`, `Filter(client)`, `Grep(client)`), so `cmd/agent` builds them after it connects and tests bind them to the harness with `nvimtest.StartWithTools`. The logic runs in Lua, `lua/the-agent/buffer.lua`, one function per tool step, so each step is a single RPC request (`call_buffer_function` in `vimtool.go`). Everything one request changes is one undo block, which is what makes an agent edit exactly one `u`.
+
+`edit`, `write` and `filter` share one Go step, `change_buffer`: it calls the Lua function that changes and saves the buffer, then `close_region` with how long to wait for diagnostics (`DIAGNOSTICS_WAIT` for `edit`, none for the other two), and returns the diagnostics found. Required string arguments such as `path` are checked by `required_string`, which returns `<name> is required` as the tool error.
 
 Paths may be absolute or relative; relative paths resolve against Neovim's working directory, the project.
 
@@ -20,7 +22,7 @@ Returns the buffer when the file is loaded and has no unsaved changes of mine, a
 
 When the file is loaded, `read` records the buffer's `changedtick` for the calling agent in the buffer variable `b:the_agent_ticks`, a dictionary from session directory to tick. Nothing checks it yet; it is there for the cross-agent staleness check. A file that isn't loaded gets no tick on purpose: a read does not load buffers, and a buffer that doesn't exist has no `changedtick` to record. So the baseline the staleness check will see is this: an agent has a tick for a buffer only once it read it while it was loaded, or changed it with `edit`, `write` or `filter` (which always load the file and record the tick after saving); a buffer an agent has no tick for counts as never seen by that agent.
 
-The output is the same numbered-lines format as `tool`'s read (`tool.Numbered`), with the same `offset`, `limit` and truncation.
+The output is the same numbered-lines format as `tool`'s read (`tool.Numbered` with `tool.LineRangeFrom(arguments)`), with the same `offset`, `limit` and truncation.
 
 ## edit.go — Edit
 
@@ -28,11 +30,11 @@ Finds `old_text` in the buffer, which must occur exactly once, and replaces it w
 
 A buffer with my unsaved changes goes through the sidecar flow above first, so the agent never saves my work for me and `old_text` is matched against the disk version.
 
-The edited text is tracked with an extmark in the `the-agent-edit` namespace, never with stored line numbers. `edit` returns that region to Go and releases it once the tool call is done. The result is `Edited <path>` and the same minus/plus listing as `tool`'s edit (`tool.Diff`).
+The edited text is tracked with an extmark in the `the-agent-edit` namespace, never with stored line numbers. `edit` returns that region to Go, which closes it with `close_region` once the change is saved. The result is `Edited <path>` and the same minus/plus listing as `tool`'s edit (`tool.Diff`).
 
 ## diagnostics.go — what the edit broke
 
-The model learns what it broke without running anything. Before replacing the text, `edit` counts the diagnostics already on the replaced lines and starts listening for `DiagnosticChanged` on the buffer. Releasing the region then waits, up to `DIAGNOSTICS_WAIT` (500 ms), for that event, and only when an LSP client is attached to the buffer: with no LSP nothing will publish, so the edit returns at once. Diagnostics that arrive during the save itself (a `BufWritePost` checker) are picked up without waiting. The wait ends at the first `DiagnosticChanged`, so a server that publishes in several rounds may report only some of them; completeness is not promised. The wait is also not tied to a document version: Neovim's `publishDiagnostics` handler drops the version the server sends and `DiagnosticChanged` carries none, so a late publish for the text before the edit, arriving after the edit, ends the wait too and may report what was already there or miss what the edit broke. Telling those apart would mean wrapping the LSP client's handler, which is more than this best-effort report is worth.
+The model learns what it broke without running anything. Before replacing the text, `edit` counts the diagnostics already on the replaced lines and starts listening for `DiagnosticChanged` on the buffer. Closing the region then waits, up to `DIAGNOSTICS_WAIT` (500 ms), for that event, and only when an LSP client is attached to the buffer: with no LSP nothing will publish, so the edit returns at once. Diagnostics that arrive during the save itself (a `BufWritePost` checker) are picked up without waiting. The wait ends at the first `DiagnosticChanged`, so a server that publishes in several rounds may report only some of them; completeness is not promised. The wait is also not tied to a document version: Neovim's `publishDiagnostics` handler drops the version the server sends and `DiagnosticChanged` carries none, so a late publish for the text before the edit, arriving after the edit, ends the wait too and may report what was already there or miss what the edit broke. Telling those apart would mean wrapping the LSP client's handler, which is more than this best-effort report is worth.
 
 Whatever diagnostics then sit inside the region, minus the ones counted before (matched by namespace, severity and message, since Neovim does not move stored diagnostic positions with buffer edits), are appended to the result:
 
@@ -41,7 +43,7 @@ Diagnostics in the edited region:
 3:5 error: undefined: foo (gopls)
 ```
 
-Lines and columns are 1-based. Diagnostics outside the region are never reported, and with none to report the section is left out. `write` and `filter` release their regions without a snapshot or a wait, so they report no diagnostics.
+Lines and columns are 1-based; `diagnostics_section` formats the section. Diagnostics outside the region are never reported, and with none to report the section is left out. `write` and `filter` close their regions without a snapshot or a wait, so they report no diagnostics.
 
 ## write.go — Write
 

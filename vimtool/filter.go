@@ -24,15 +24,15 @@ func Filter(client *neovim.Nvim) tool.Tool {
 	description := "Run a text-in, text-out shell command over a whole file, like :%!command in Vim, replace the file with its output and save it. A command that exits non-zero changes nothing"
 	return tool.NewTool("filter", description, parameters,
 		func(invocation_context context.Context, _ string, arguments map[string]any) (tool.ToolResult, error) {
-			path, ok := arguments["path"].(string)
-			if !ok {
-				return tool.ToolResult{}, fmt.Errorf("path is required")
+			path, error := required_string(arguments, "path")
+			if error != nil {
+				return tool.ToolResult{}, error
 			}
-			command, ok := arguments["command"].(string)
-			if !ok {
-				return tool.ToolResult{}, fmt.Errorf("command is required")
+			command, error := required_string(arguments, "command")
+			if error != nil {
+				return tool.ToolResult{}, error
 			}
-			if error := change(client, invocation_context, "filter", path, command); error != nil {
+			if _, error := change_buffer(client, invocation_context, 0, "filter", path, command); error != nil {
 				return tool.ToolResult{}, error
 			}
 			text := fmt.Sprintf("Filtered %s through %s", path, command)

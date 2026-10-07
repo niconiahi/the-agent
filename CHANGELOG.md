@@ -93,15 +93,18 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 - `Grep(client *neovim.Nvim) tool.Tool` - `tool.GrepTool` with the same result, plus one quickfix entry per hit
 - `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
 - `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark, new diagnostics in the region appended to the result
-- `Tools(client *neovim.Nvim) []tool.Tool` - the buffer-backed file tools
 - `Write(client *neovim.Nvim) tool.Tool` - buffer-backed write that creates the file if needed, one undo block, saved
 - `Filter(client *neovim.Nvim) tool.Tool` - runs a shell command over a buffer like `:%!cmd`, one undo block, saved; a failing command changes nothing
 - `WithSession(invocation_context context.Context, directory string, now func() time.Time) context.Context` - the calling agent's session directory and clock for the tools
 
 ### Package: `tool`
 
+**Types**:
+- `LineRange{Offset, Limit int}` - which lines a read returns
+
 **Functions**:
-- `Numbered(content string, arguments map[string]any) ToolResult` - read's numbered, truncated output
+- `LineRangeFrom(arguments map[string]any) LineRange` - a read's `offset` and `limit` arguments, defaulting to line 1 and `MAX_READ_LINES`
+- `Numbered(content string, line_range LineRange) ToolResult` - read's numbered, truncated output
 - `Diff(old_text string, new_text string) string` - edit's minus/plus listing (was `generate_diff`)
 
 ### Package: `nvim`
@@ -116,12 +119,13 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 
 ### Lua plugin
 
-- `lua/the-agent/buffer.lua` - `read`, `edit`, `write`, `filter` and `release`, each one RPC request; edit, write and filter share the sidecar-and-reload step for buffers with unsaved changes; `edit` snapshots the diagnostics on the replaced lines and `release(region, timeout)` returns the new ones in the region
+- `lua/the-agent/buffer.lua` - `read`, `edit`, `write`, `filter` and `close_region`, each one RPC request; edit, write and filter share the sidecar-and-reload step for buffers with unsaved changes, which breaks the undo sequence after the reload; `edit` snapshots the diagnostics on the replaced lines and `close_region(region, timeout)` returns the new ones in the region
 
 ### Integration tests
 
+- `integration/vimtool_helpers_test.go` - shared helpers for the vimtool tests: start Neovim with the vimtool tools and scripted tool calls, send a turn, read tool results, buffer lines, ticks, undo and recorded notifications
 - `integration/fill_quickfix_from_grep_test.go` - a grep tool call fills the quickfix list with file, line and text per hit, for a directory and a single file, and the model's result is rg's output
-- `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`, and the sidecar and notification for a buffer with my unsaved changes
-- `integration/write_files_through_buffers_test.go` - `write` creates a file, replaces an open buffer as one undo block, and sets my unsaved changes aside in a sidecar first
+- `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`, and the sidecar, notification and one-undo-back-to-disk for a buffer with my unsaved changes
+- `integration/write_files_through_buffers_test.go` - `write` creates a file, replaces an open buffer as one undo block, and sets my unsaved changes aside in a sidecar first, after which one undo reverts to the disk version
 - `integration/filter_buffers_through_commands_test.go` - `filter` with `sort` and `gofmt` as one saved undo block; a failing command is a tool error that changes nothing
 - `integration/report_edit_diagnostics_test.go` - diagnostics published through `vim.diagnostic.set` and through an in-process fake LSP; only new ones inside the edited region are reported, no LSP means no wait, and a silent LSP costs at most `DIAGNOSTICS_WAIT`
