@@ -60,7 +60,14 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		replies, error := current.run(messages[:len(messages)-1], last)
 
 		for _, reply := range replies {
-			parsed.AppendAssistant(current.config.Model.ID, current.config.Now(), reply.Usage.TotalTokens, reply_text(reply))
+			switch typed := reply.(type) {
+			case *message.AssistantMessage:
+				if render_error := parsed.AppendAssistantMessage(current.config.Model.ID, current.config.Now(), *typed); render_error != nil {
+					error = errors.Join(error, render_error)
+				}
+			case message.ToolResultMessage:
+				parsed.AppendToolResult(typed, current.config.Now())
+			}
 		}
 		if len(replies) > 0 {
 			parsed.AppendUser()
@@ -75,9 +82,10 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	return nil
 }
 
-// run sends history plus last to the model and returns the assistant
-// replies that have text.
-func (current *frontend) run(history []message.Message, last message.UserMessage) ([]*message.AssistantMessage, error) {
+// run sends history plus last to the model and returns, in order, the
+// assistant replies that have content (*message.AssistantMessage) and the
+// results of the tools they called (message.ToolResultMessage).
+func (current *frontend) run(history []message.Message, last message.UserMessage) ([]message.Message, error) {
 	agent := orchestrator.New(
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
@@ -90,14 +98,19 @@ func (current *frontend) run(history []message.Message, last message.UserMessage
 		}),
 	)
 
-	replies := []*message.AssistantMessage{}
+	replies := []message.Message{}
 	agent.Subscribe(func(event orchestrator.AgentEvent) {
 		end, ok := event.(orchestrator.MessageEndEvent)
 		if !ok {
 			return
 		}
-		if reply, ok := end.Message.(*message.AssistantMessage); ok && reply_text(reply) != "" {
-			replies = append(replies, reply)
+		switch typed := end.Message.(type) {
+		case *message.AssistantMessage:
+			if len(typed.Content) > 0 {
+				replies = append(replies, typed)
+			}
+		case message.ToolResultMessage:
+			replies = append(replies, typed)
 		}
 	})
 
@@ -119,16 +132,6 @@ func (current *frontend) finish(buffer int) {
 	current.mutex.Lock()
 	defer current.mutex.Unlock()
 	delete(current.running, buffer)
-}
-
-func reply_text(reply *message.AssistantMessage) string {
-	parts := []string{}
-	for _, content := range reply.Content {
-		if text, ok := content.(message.TextContent); ok && strings.TrimSpace(text.Text) != "" {
-			parts = append(parts, strings.TrimSpace(text.Text))
-		}
-	}
-	return strings.Join(parts, "\n\n")
 }
 
 // buffer_text is the buffer as it would be written to disk.
