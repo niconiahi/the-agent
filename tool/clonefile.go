@@ -107,7 +107,7 @@ func (clone *clonefile_clone) Remove() {
 
 func (clone *clonefile_clone) discard(invocation_context context.Context) error {
 	path := shell_quote(clone.path)
-	script := "if [ -e " + path + " ] || [ -L " + path + " ]; then trash=$(mktemp -d " + shell_quote(filepath.Join(clone.clones, ".removing.XXXXXX")) + ") && mv " + path + " \"$trash\"/ && echo \"$trash\"; fi"
+	script := "mkdir -p " + shell_quote(clone.clones) + " || exit\nif [ -e " + path + " ] || [ -L " + path + " ]; then trash=$(mktemp -d " + shell_quote(filepath.Join(clone.clones, ".removing.XXXXXX")) + ") && mv " + path + " \"$trash\"/ && echo \"$trash\"; fi"
 	output, error := run_step(clone.run(invocation_context, clone.project, script), nil)
 	if error != nil {
 		return fmt.Errorf("failed to set the previous clone aside: %w", error)

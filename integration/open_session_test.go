@@ -13,7 +13,9 @@ import (
 
 func TestTA_InAProjectThatIsNotSetUpSaysSoAndCreatesNoSession(t *testing.T) {
 	config := nvimtest.Config()
-	config.Sandbox = setup.Ready
+	config.Sandbox = func(project string) error {
+		return setup.Ready(project, "/bin/sh")
+	}
 	harness := nvimtest.Start(t, config)
 
 	error := harness.CommandError("TA foo")
@@ -81,6 +83,21 @@ func TestTA_SeedsSystemPromptOnce(t *testing.T) {
 	harness.Command("TA bar")
 	if got := harness.ReadFile(".the-agent/system_prompt.md"); got != "my rules\n" {
 		t.Fatalf("an existing system_prompt.md must be kept: %q", got)
+	}
+}
+
+func TestTA_SeedsGitignoreForTheCloneAndTmpOnce(t *testing.T) {
+	harness := nvimtest.Start(t, nvimtest.Config())
+
+	harness.Command("TA foo")
+	if got := harness.ReadFile(".the-agent/.gitignore"); got != "/clone/\n/tmp/\n" {
+		t.Fatalf(".gitignore not seeded: %q", got)
+	}
+
+	harness.WriteFile(".the-agent/.gitignore", "/sessions/\n")
+	harness.Command("TA bar")
+	if got := harness.ReadFile(".the-agent/.gitignore"); got != "/sessions/\n" {
+		t.Fatalf("an existing .gitignore must be kept: %q", got)
 	}
 }
 

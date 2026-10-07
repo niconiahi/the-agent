@@ -30,7 +30,7 @@ func (sandbox Sandbox) Environment() []string {
 	return []string{
 		"HOME=" + sandbox.Home,
 		"PATH=" + os.Getenv("PATH"),
-		"TMPDIR=" + filepath.Join(sandbox.Home, "tmp"),
+		"TMPDIR=" + filepath.Join(sandbox.Project, ".the-agent", "tmp"),
 		"GOCACHE=" + filepath.Join(sandbox.Home, "gocache"),
 		"GOMODCACHE=" + filepath.Join(sandbox.Home, "gomodcache"),
 		"GIT_CONFIG_COUNT=1",

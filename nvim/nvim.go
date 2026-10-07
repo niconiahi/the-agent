@@ -48,6 +48,8 @@ project's AGENTS.md here, or the parts of it the agent should follow.
 List the skills the agent may use here, one per line with what each is for.
 `
 
+const GITIGNORE = "/clone/\n/tmp/\n"
+
 func SystemPromptPath(project string) string {
 	return filepath.Join(project, ".the-agent", "system_prompt.md")
 }
@@ -101,6 +103,9 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 	if error := current.seed_system_prompt(project); error != nil {
 		return error
 	}
+	if error := seed_gitignore(project); error != nil {
+		return error
+	}
 
 	if _, error := os.Stat(path); errors.Is(error, os.ErrNotExist) {
 		if error := os.MkdirAll(filepath.Dir(path), 0o755); error != nil {
@@ -129,6 +134,14 @@ func (current *frontend) seed_system_prompt(project string) error {
 		return error
 	}
 	return os.WriteFile(path, []byte(strings.TrimSpace(current.config.SystemPrompt)+"\n\n"+SYSTEM_PROMPT_GUIDE), 0o644)
+}
+
+func seed_gitignore(project string) error {
+	path := filepath.Join(project, ".the-agent", ".gitignore")
+	if _, error := os.Stat(path); !errors.Is(error, os.ErrNotExist) {
+		return error
+	}
+	return os.WriteFile(path, []byte(GITIGNORE), 0o644)
 }
 
 func thinking(client *neovim.Nvim, buffer int) ([][2]int, error) {

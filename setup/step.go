@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -59,7 +60,9 @@ func (current *machine) install(project string) error {
 		current.sudoers_step(),
 		current.caches_step(),
 		current.read_step(project),
+		current.owned_step(project),
 		current.search_step(parents(current.host.Home, project)),
+		current.binary_step(project),
 	}
 	if error := current.apply(steps, INSTALLED); error != nil {
 		return error
@@ -130,6 +133,66 @@ func (current *machine) read_step(project string) step {
 	return each
 }
 
+func owned(project string) []string {
+	directories := make([]string, len(OWNED))
+	for index, name := range OWNED {
+		directories[index] = filepath.Join(project, FOLDER, name)
+	}
+	return directories
+}
+
+func (current *machine) owned_step(project string) step {
+	invoker := current.host.Invoker
+	folder := filepath.Join(project, FOLDER)
+	directories := owned(project)
+	each := step{
+		label: fmt.Sprintf("%s/{%s} owned by %s, full control for %s", folder, strings.Join(OWNED, ","), USER, invoker),
+		done:  true,
+	}
+	for _, directory := range directories {
+		if !current.platform.has_full(current, directory, invoker) {
+			each.done = false
+		}
+	}
+	if each.done {
+		return each
+	}
+	if _, found := current.probe("test", "-d", folder); !found {
+		each.commands = append(each.commands, command("mkdir", "-p", folder), command("chown", invoker+":", folder))
+	}
+	each.commands = append(each.commands,
+		command(append([]string{"mkdir", "-p"}, directories...)...),
+		command(append([]string{"chown", USER + ":" + USER}, directories...)...),
+		command(append([]string{"chmod", "0700"}, directories...)...),
+		current.platform.grant_full(invoker, directories),
+	)
+	return each
+}
+
+func (current *machine) binary_step(project string) step {
+	binary := current.host.Binary
+	each := step{label: "search on the folders holding " + binary, done: true}
+	project_directories := parents(current.host.Home, project)
+	var directories []string
+	for _, directory := range parents(current.host.Home, binary) {
+		if contains(project_directories, directory) || searchable(directory) || current.platform.has_search(current, directory) {
+			continue
+		}
+		directories = append(directories, directory)
+		each.done = false
+		each.commands = append(each.commands, current.platform.grant_search(directory))
+	}
+	if len(directories) > 0 {
+		each.label = fmt.Sprintf("search on %s for %s", strings.Join(directories, ", "), binary)
+	}
+	return each
+}
+
+func searchable(directory string) bool {
+	info, error := os.Stat(directory)
+	return error == nil && info.Mode().Perm()&0o001 != 0
+}
+
 func (current *machine) search_step(directories []string) step {
 	each := step{label: "search on " + strings.Join(directories, ", "), done: true}
 	for _, directory := range directories {
@@ -141,18 +204,55 @@ func (current *machine) search_step(directories []string) step {
 	return each
 }
 
+type probe struct {
+	command  Command
+	diagnose func(output string) error
+}
+
+func (current *machine) probes(project string) []probe {
+	as_user := func(arguments ...string) Command {
+		return command(append([]string{"sudo", "-n", "-u", USER}, arguments...)...)
+	}
+	probes := []probe{{
+		command: as_user("ls", project),
+		diagnose: func(output string) error {
+			return current.platform.diagnose(project, output)
+		},
+	}, {
+		command: as_user("test", "-x", current.host.Binary),
+		diagnose: func(string) error {
+			return fmt.Errorf("%s cannot run %s: run sudo the-agent setup %s", USER, current.host.Binary, project)
+		},
+	}}
+	for _, directory := range owned(project) {
+		probes = append(probes, probe{
+			command: as_user("test", "-w", directory),
+			diagnose: func(string) error {
+				return fmt.Errorf("%s cannot write %s: run sudo the-agent setup %s", USER, directory, project)
+			},
+		})
+	}
+	return probes
+}
+
 func (current *machine) check(project string) error {
-	probe := command("sudo", "-n", "-u", USER, "ls", project)
+	probes := current.probes(project)
 	if current.dry_run {
-		current.print("• check (dry run)\n    %s\n", probe)
+		current.print("• check (dry run)\n")
+		for _, each := range probes {
+			current.print("    %s\n", each.command)
+		}
 		return nil
 	}
-	output, error := current.host.Shell.Run(probe)
-	if error == nil {
-		current.print("✓ check: %s → ready\n", probe)
-		return nil
+	for _, each := range probes {
+		output, error := current.host.Shell.Run(each.command)
+		if error != nil {
+			return each.diagnose(output)
+		}
+		current.print("✓ check: %s\n", each.command)
 	}
-	return current.platform.diagnose(project, output)
+	current.print("ready\n")
+	return nil
 }
 
 func (current *machine) uninstall(project string) error {
@@ -166,7 +266,7 @@ func (current *machine) uninstall(project string) error {
 	if registered {
 		read.commands = append(read.commands, current.rewrite_registry(others))
 	}
-	var shared []string
+	shared := parents(current.host.Home, current.host.Binary)
 	for _, other := range others {
 		shared = append(shared, parents(current.host.Home, other)...)
 	}
@@ -176,7 +276,7 @@ func (current *machine) uninstall(project string) error {
 			directories = append(directories, directory)
 		}
 	}
-	steps := []step{read}
+	steps := []step{current.remove_owned_step(project), read}
 	if len(directories) > 0 {
 		steps = append(steps, current.revoke_search_step(directories))
 	}
@@ -187,6 +287,7 @@ func (current *machine) uninstall_all() error {
 	var steps []step
 	var directories []string
 	for _, project := range current.projects() {
+		steps = append(steps, current.remove_owned_step(project))
 		read := step{label: fmt.Sprintf("ACL read on %s", project), done: !current.platform.has_read(current, project)}
 		if !read.done {
 			read.commands = current.platform.revoke_read(project)
@@ -196,6 +297,11 @@ func (current *machine) uninstall_all() error {
 			if !contains(directories, directory) {
 				directories = append(directories, directory)
 			}
+		}
+	}
+	for _, directory := range parents(current.host.Home, current.host.Binary) {
+		if !contains(directories, directory) {
+			directories = append(directories, directory)
 		}
 	}
 	if len(directories) > 0 {
@@ -211,6 +317,18 @@ func (current *machine) uninstall_all() error {
 		step{label: "user " + USER, done: !user_exists, commands: current.platform.delete_user()},
 	)
 	return current.apply(steps, UNINSTALLED)
+}
+
+func (current *machine) remove_owned_step(project string) step {
+	directories := owned(project)
+	each := step{label: fmt.Sprintf("%s/{%s}", filepath.Join(project, FOLDER), strings.Join(OWNED, ",")), done: true}
+	for _, directory := range directories {
+		if _, found := current.probe("test", "-e", directory); found {
+			each.done = false
+		}
+	}
+	each.commands = []Command{command(append([]string{"rm", "-rf"}, directories...)...)}
+	return each
 }
 
 func (current *machine) revoke_search_step(directories []string) step {

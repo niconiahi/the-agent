@@ -50,6 +50,22 @@ func TestBashRead_WithoutSetupFailsAtOnceWithTheSetupCommand(t *testing.T) {
 	}
 }
 
+func TestBashRead_TmpdirIsTheProjectsTheAgentTmp(t *testing.T) {
+	sandbox := Sandbox{User: setup.USER, Home: "/var/the-agent", Project: "/work/app"}
+
+	environment := sandbox.Environment()
+
+	for _, want := range []string{"TMPDIR=/work/app/.the-agent/tmp", "GOCACHE=/var/the-agent/gocache", "GOMODCACHE=/var/the-agent/gomodcache"} {
+		found := false
+		for _, variable := range environment {
+			found = found || variable == want
+		}
+		if !found {
+			t.Errorf("want %s in %v", want, environment)
+		}
+	}
+}
+
 func TestBashRead_SimpleCommand(t *testing.T) {
 	result, error := BashReadTool(require_sandbox(t)).Execute(context.Background(), "", map[string]interface{}{
 		"command": "echo hello world",
