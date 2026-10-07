@@ -9,7 +9,9 @@ import (
 )
 
 func TestTA_CreatesSessionFileAndOpensIt(t *testing.T) {
-	harness := nvimtest.Start(t, nvimtest.Config())
+	config := nvimtest.Config()
+	config.Now = fixed_clock("2026-10-06T14:32:00Z")
+	harness := nvimtest.Start(t, config)
 
 	harness.Command("TA foo")
 
@@ -20,7 +22,7 @@ func TestTA_CreatesSessionFileAndOpensIt(t *testing.T) {
 	if got := harness.BufferName(); got != path {
 		t.Fatalf("want current buffer %q, got %q", path, got)
 	}
-	if got, want := harness.Text(), "[system_prompt.md](../../system_prompt.md)\n\n## user\n\n"; got != want {
+	if got, want := harness.Text(), "[system_prompt.md](../../system_prompt.md)\n\ncreated · 2026-10-06T14:32:00Z\n\n## user\n\n"; got != want {
 		t.Fatalf("want new session %q, got %q", want, got)
 	}
 }

@@ -23,7 +23,7 @@ func TestTASend_SendsLinkedSystemPrompt(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("want 1 request, got %d", len(requests))
 	}
-	if got, want := requests[0].SystemPrompt, "Be terse.\nAGENTS.md says: use tabs."; got != want {
+	if got, want := requests[0].SystemPrompt, "Be terse.\nAGENTS.md says: use tabs.\n\ncreated · 2026-10-06T14:32:00Z"; got != want {
 		t.Fatalf("system prompt\nwant %q\ngot  %q", want, got)
 	}
 

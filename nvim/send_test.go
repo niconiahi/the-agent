@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/niconiahi/the-agent/message"
-	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
@@ -73,6 +72,7 @@ func TestTASend_RefusesWithoutAUserMessage(t *testing.T) {
 	harness := nvimtest.Start(t, nvimtest.Config())
 
 	harness.Command("TA foo")
+	before := harness.Text()
 	error := harness.CommandError("TASend")
 
 	if error == nil || !strings.Contains(error.Error(), "## user") {
@@ -81,7 +81,7 @@ func TestTASend_RefusesWithoutAUserMessage(t *testing.T) {
 	if len(provider.Requests()) != 0 {
 		t.Fatal("nothing must be sent")
 	}
-	if got := harness.Text(); got != nvim.NEW_SESSION {
+	if got := harness.Text(); got != before {
 		t.Fatalf("buffer changed: %q", got)
 	}
 }

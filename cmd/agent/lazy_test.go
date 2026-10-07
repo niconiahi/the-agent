@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 )
 
@@ -63,7 +62,7 @@ func TestLazySpec_BuildsTheBinaryAndLoadsOnCommands(t *testing.T) {
 		t.Fatal(error)
 	}
 	harness.Command("TA foo")
-	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); got != nvim.NEW_SESSION {
+	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); !new_session(got) {
 		t.Fatalf("session not created by the built binary: %q", got)
 	}
 }

@@ -42,7 +42,7 @@ func TestStatusline_ShowsCountAgainstCeiling(t *testing.T) {
 
 	harness.Command("TA foo")
 
-	harness.WaitFor("the count", func() bool { return strings.Contains(render(harness).Text, "6 / 200,000 tokens") })
+	harness.WaitFor("the count", func() bool { return strings.Contains(render(harness).Text, "14 / 200,000 tokens") })
 	if render(harness).red() {
 		t.Fatal("far from the ceiling the count must not be red")
 	}
@@ -55,18 +55,18 @@ func TestStatusline_FollowsEdits(t *testing.T) {
 	harness.SetText(harness.Text() + strings.Repeat("x", 400) + "\n")
 	harness.Command("doautocmd TextChanged")
 
-	harness.WaitFor("the new count", func() bool { return strings.Contains(render(harness).Text, "111 / 200,000 tokens") })
+	harness.WaitFor("the new count", func() bool { return strings.Contains(render(harness).Text, "119 / 200,000 tokens") })
 }
 
 func TestStatusline_TurnsRedNearCeiling(t *testing.T) {
 	harness := nvimtest.Start(t, nvimtest.Config())
-	harness.Setup(`{ ceiling = 6 }`)
+	harness.Setup(`{ ceiling = 14 }`)
 
 	harness.Command("TA foo")
 
 	harness.WaitFor("a red count", func() bool {
 		drawn := render(harness)
-		return strings.Contains(drawn.Text, "6 / 6 tokens") && drawn.red()
+		return strings.Contains(drawn.Text, "14 / 14 tokens") && drawn.red()
 	})
 }
 

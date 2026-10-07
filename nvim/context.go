@@ -64,7 +64,7 @@ func (current *frontend) prepare(client *neovim.Nvim, buffer neovim.Buffer) (*re
 	}
 	prepared := &request{buffer: buffer, directory: directory, text: text, parsed: parsed, messages: parsed.Messages()}
 	prompt, prompt_error := system_prompt(parsed, directory)
-	prepared.prompt = prompt
+	prepared.prompt = parsed.SystemPrompt(prompt)
 	loaded, image_error := session.LoadImages(prepared.messages, directory)
 	if image_error == nil {
 		prepared.messages = loaded

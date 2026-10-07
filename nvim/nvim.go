@@ -37,8 +37,6 @@ const (
 	METHOD_COUNT = "the_agent_count"
 )
 
-const NEW_SESSION = session.SYSTEM_PROMPT_LINK + "\n\n## user\n\n"
-
 func SystemPromptPath(project string) string {
 	return filepath.Join(project, ".the-agent", "system_prompt.md")
 }
@@ -90,7 +88,7 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 		if error := os.MkdirAll(filepath.Dir(path), 0o755); error != nil {
 			return error
 		}
-		if error := os.WriteFile(path, []byte(NEW_SESSION), 0o644); error != nil {
+		if error := os.WriteFile(path, []byte(session.New(current.config.Now())), 0o644); error != nil {
 			return error
 		}
 	} else if error != nil {

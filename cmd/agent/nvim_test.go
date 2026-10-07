@@ -11,9 +11,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
+	"github.com/niconiahi/the-agent/session"
 )
+
+func new_session(text string) bool {
+	created, rest, ok := strings.Cut(strings.TrimPrefix(text, session.SYSTEM_PROMPT_LINK+"\n\n"+session.CREATED_PREFIX), "\n")
+	if !ok {
+		return false
+	}
+	if _, error := time.Parse(session.TIMESTAMP_FORMAT, created); error != nil {
+		return false
+	}
+	return rest == "\n## user\n\n"
+}
 
 func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 	harness := nvimtest.Launch(t)
@@ -26,7 +37,7 @@ func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 	harness.Setup(`{ bin = ... }`, binary)
 
 	harness.Command("TA foo")
-	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); got != nvim.NEW_SESSION {
+	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); !new_session(got) {
 		t.Fatalf("session not created by the binary: %q", got)
 	}
 
