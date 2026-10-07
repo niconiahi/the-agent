@@ -8,12 +8,12 @@ The package has two layers: the tool shape (what a tool looks like) and the conc
 
 A `Tool` is a struct, not an interface. It has four fields:
 
-- **Name** — what the model calls when it wants to use this tool (`"read"`, `"bash"`, etc.)
+- **Name** — what the model calls when it wants to use this tool (`"read"`, `"bash_read"`, etc.)
 - **Description** — a natural language description that tells the model when and how to use the tool. This is part of the prompt, in a sense — the model reads these descriptions to decide which tool fits the task.
 - **Parameters** — a `json.RawMessage` containing a JSON Schema. This tells the model what arguments the tool accepts, their types, and which are required. It's raw JSON because the schema is passed straight through to the LLM API — we never need to interpret it ourselves.
 - **Execute** — a function that takes a context, a tool call ID, and the parsed arguments, and returns a `ToolResult` and an error.
 
-Using a struct with a function field instead of an interface means tools are values, not types. You construct a tool by calling a factory function (`ReadTool()`, `BashTool()`) that returns a configured `Tool`. No need to define a new type for each tool. The factory function wires up the parameters schema and the execute function, and that's it.
+Using a struct with a function field instead of an interface means tools are values, not types. You construct a tool by calling a factory function (`ReadTool()`, `BashReadTool(sandbox)`) that returns a configured `Tool`. No need to define a new type for each tool. The factory function wires up the parameters schema and the execute function, and that's it.
 
 `ToolResult` is what a tool returns: content blocks (usually `TextContent` with the output) and optional details (tool-specific metadata like exit codes). The content blocks go back to the model as the tool's response. The details go to the UI or logging — the model doesn't see them.
 
@@ -33,15 +33,19 @@ Returns an error if the file doesn't exist. This is intentional — the model sh
 
 The numbering and truncation live in `Numbered(content, line_range)`, which the buffer-backed read in `vimtool` shares; `LineRangeFrom(arguments)` turns the `offset` and `limit` arguments into a `LineRange`, defaulting to line 1 and `MAX_READ_LINES`. The `--nvim` binary uses that read and edit instead of these two (see `vimtool.md`).
 
-## bash.go — BashTool
+## bash_read.go — BashReadTool
 
-Executes shell commands. Takes a `command` (required) and optional `timeout` in seconds (default 120).
+Runs shell commands as `_the-agent`, the unprivileged user `the-agent setup` creates (see `setup.md`). Takes a `command` (required) and optional `timeout` in seconds (default 120). There is no plain `bash` tool: a command that writes the project behind the buffers is exactly what the sandbox exists to stop.
 
-Runs via `exec.CommandContext` with `/bin/bash -c`, which means the model can use pipes, redirects, semicolons — anything bash supports. The context wraps the invocation context with a timeout, so both the agent's cancellation and the tool's timeout can kill the process.
+`BashReadTool(sandbox)` takes a `Sandbox{User, Home, Project}`. `Sandbox.Command` builds `sudo -n -u <User> /usr/bin/env <Environment()> /bin/bash -c <command>` with the project as its working directory, so the model can use pipes, redirects, semicolons — anything bash supports — while `_the-agent` can read the project but not write it: a write fails with "Permission denied", and the tool's description tells the model to use `bash_write` for that. The variables are set inside sudo because sudoers' `env_reset` drops the caller's: `HOME`, `TMPDIR`, `GOCACHE` and `GOMODCACHE` point into `_the-agent`'s home, which it can write; `PATH` is mine, so the same toolchain is found; `GIT_CONFIG_*` sets `safe.directory=*`, without which git refuses a repository owned by another user.
 
-Captures stdout and stderr separately, then combines them (stderr appended after stdout). Truncates at 100KB to prevent massive outputs from blowing up the conversation context.
+`-n` means sudo never prompts. When sudo itself refuses (stderr starting `sudo: ` with one of `SUDO_REFUSALS`, exit 1, no stdout) the tool returns an error, not a result, naming `sudo the-agent setup <project>`. The context wraps the invocation context with a timeout; on cancel or timeout the tool sends `SIGTERM` to sudo, which relays it to the command — I can't `SIGKILL` a process another user owns — and `WaitDelay` (`BASH_STOP_GRACE`) stops waiting for its output after that.
 
-On failure, it doesn't return an error — it returns the output with the exit code in the details. This is important. A command returning exit code 1 is not an exceptional failure — it's normal operation (think `grep` finding nothing). The model needs to see the output and the exit code to decide what to do next. Only truly exceptional failures (like "couldn't start bash") return errors.
+Captures stdout and stderr separately, then combines them (stderr appended after stdout). Truncates at `MAX_OUTPUT_BYTES` (100KB, in `tool.go`, shared with grep and find) to prevent massive outputs from blowing up the conversation context.
+
+On failure, it doesn't return an error — it returns the output with the exit code in the details. This is important. A command returning exit code 1 is not an exceptional failure — it's normal operation (think `grep` finding nothing). The model needs to see the output and the exit code to decide what to do next. Only truly exceptional failures (couldn't start sudo, sudo refused) return errors.
+
+Its tests need a machine where setup has run on the repository; they skip with the setup command when `sudo -n -u _the-agent test -r <repo>` fails, except the one that checks an unknown user fails at once with the setup message.
 
 ## edit.go — EditTool
 
@@ -65,7 +69,7 @@ Takes `pattern` (required), optional `path` (default `.`), optional `glob` filte
 
 Builds the `rg` command with `--no-heading --line-number --color=never` for clean, parseable output. Exit code 1 from ripgrep means "no matches found" — that's not an error, so it returns "No matches found" as text content.
 
-Truncates output at 100KB. Same reasoning as bash — don't flood the context.
+Truncates output at 100KB. Same reasoning as bash_read — don't flood the context.
 
 In the `--nvim` binary grep is `vimtool.Grep`, which runs this tool unchanged and then fills Neovim's quickfix list (titled `the-agent grep`, a new list per call) with one entry per hit, so `]q` walks what the agent found. The model's result is byte for byte the rg output above; the hits are parsed back out of it, using the searched path as the filename when rg searched a single file and so printed only `line:text`.
 

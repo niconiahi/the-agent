@@ -165,3 +165,38 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 ### Integration tests
 
 - `integration/set_up_the_agent_sandbox_test.go` - the built binary's `setup --dry-run` prints the project's ACL step and check without root, and `setup /` is refused with exit status 1
+
+### `bash_read` replaces `bash`
+
+The `bash` tool is gone. `bash_read` runs every command as `_the-agent` in the real project, through `sudo -n -u _the-agent /usr/bin/env HOME=… PATH=… TMPDIR=… GOCACHE=… GOMODCACHE=… GIT_CONFIG_*=… /bin/bash -c <command>`, so tests, builds and `git log` work as before while any write to the project fails with "Permission denied" (the description tells the model to use `bash_write` then). `TMPDIR` and the Go caches are `_the-agent`'s own under `~_the-agent`, set inside the sudo'd command because sudoers' `env_reset` drops whatever the caller passes; `PATH` is mine, so the same `go` is found; `safe.directory=*` keeps git from refusing a repository another user owns. `sudo -n` never prompts: when sudo itself refuses (unknown user, password required, not allowed) the tool returns an error naming `sudo the-agent setup <project>` instead of a result. A timeout or abort sends `SIGTERM`, which sudo relays to the command (it can't be `SIGKILL`ed across users), and gives up after `BASH_STOP_GRACE`. `:TA` in a project `_the-agent` can't read says so, tells me to run `sudo the-agent setup`, and creates nothing, not even `.the-agent/`.
+
+### Package: `tool`
+
+- `BashReadTool(sandbox Sandbox) Tool` - `bash_read`, replacing `BashTool`
+- `Sandbox{User, Home, Project}` - who runs commands, its home (caches and `TMPDIR` live there) and the project; `Environment()` is the variables set inside sudo, `Command(ctx, directory, script)` the `*exec.Cmd` (for `bash_write` too)
+- `MAX_OUTPUT_BYTES` moved to `tool.go`; `DEFAULT_BASH_TIMEOUT = 120s`, `BASH_STOP_GRACE = 5s`, `SUDO_REFUSALS` - sudo's own refusals, reported as missing setup
+
+### Package: `setup`
+
+- `Home() string` - `~_the-agent` on this system
+- `Ready(project string) error` - the `--check` probe (`sudo -n -u _the-agent ls <project>`) and its diagnosis, for `:TA`
+
+### Package: `nvim`
+
+- `Config.Sandbox func(project string) error` - checked by `:TA` before it creates anything; nil skips it
+
+### Package: `nvim/nvimtest`
+
+- `LaunchIn(t, directory)` - Neovim in a given project; `StartWithTools` uses it when `config.Project` is set
+
+### Package: `cmd/agent`
+
+- the `--nvim` binary registers `bash_read` with the working directory as the project and sets `Sandbox: setup.Ready`
+
+### Tests
+
+- `tool/bash_read_test.go` - an unknown sandbox user fails at once with the setup command; the old `bash` tests (exit code, stderr, timeout, cancel, truncation) run through `bash_read` and skip when `sudo -n -u _the-agent test -r <repo>` fails
+- `cmd/agent/main_test.go` - the tool list has `bash_read` and no `bash`
+- `integration/open_session_test.go` - `:TA` in a project that isn't set up names `sudo the-agent setup` and leaves no `.the-agent/`
+- `integration/run_binary_as_neovim_job_test.go`, `integration/install_with_lazy_nvim_test.go` - the built binary's `:TA` in a `t.TempDir()` project (mode 0700, never readable by `_the-agent`) now answers with the setup message; session creation by the binary and the `:cd` check moved to `TestNvimMode_OpensSessionsInASetUpProject`, which skips unless setup has run on the repository
+- `integration/run_commands_as_the_agent_test.go` - in a temp project inside the repo (`$TMPDIR` is mode 0700, so `_the-agent` can't enter it): a write is "Permission denied" and changes nothing, `$TMPDIR` is `~_the-agent/tmp` and writable, `go test` passes with `~_the-agent`'s caches; all skip with the setup command when `_the-agent` can't read the project

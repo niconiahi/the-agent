@@ -30,6 +30,10 @@ Steps 1–3 are done once per machine; on a later project only 4–6 have work.
 
 Without root, anything but `--dry-run` and `--check` stops with `ERROR_NOT_ROOT` before running a command.
 
+## Used by the agent
+
+`Ready(project)` is the check on its own, run directly on this machine: `sudo -n -u _the-agent ls <project>`, with the same diagnosis (TCC, or "run sudo the-agent setup"). The `--nvim` binary sets it as `nvim.Config.Sandbox`, so `:TA` in a project that isn't set up shows that error and creates nothing. `Home()` is `~_the-agent` on this system; `cmd/agent` passes it, with `USER` and the project, as the `tool.Sandbox` that `bash_read` runs commands in.
+
 ## Testing
 
 `Host` carries everything machine-specific: the system (`darwin` or `linux`), the invoking user and home, the working directory, whether it is root, the `Shell` and the output. `Local` builds it for this machine. The tests in `setup/setup_test.go` use a fake `Shell` that answers probes from a table, so they cover both systems' command lists, idempotence, the rejected sudoers draft, the check messages and both uninstall scopes without root; `integration/set_up_the_agent_sandbox_test.go` runs the real binary's dry run and refusal.
