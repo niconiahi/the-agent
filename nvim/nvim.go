@@ -17,7 +17,8 @@ import (
 )
 
 type Config struct {
-	Model *model.Model
+	Project string
+	Model   *model.Model
 
 	SystemPrompt  string
 	Tools         []tool.Tool
@@ -52,6 +53,13 @@ func Attach(client *neovim.Nvim, config Config) error {
 	if config.Now == nil {
 		config.Now = time.Now
 	}
+	if config.Project == "" {
+		project, error := os.Getwd()
+		if error != nil {
+			return error
+		}
+		config.Project = project
+	}
 	current := &frontend{config: config, running: map[int]*turn{}}
 	return errors.Join(
 		client.RegisterHandler(METHOD_OPEN, current.open),
@@ -71,10 +79,7 @@ func (current *frontend) open(client *neovim.Nvim, name string) error {
 		return errors.New("usage: :TA <name>")
 	}
 
-	var project string
-	if error := client.Call("getcwd", &project); error != nil {
-		return error
-	}
+	project := current.config.Project
 	path := SessionPath(project, name)
 
 	if error := current.seed_system_prompt(project); error != nil {

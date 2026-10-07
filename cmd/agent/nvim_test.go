@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -27,6 +28,16 @@ func TestNvimMode_RunsAsNeovimJob(t *testing.T) {
 	harness.Command("TA foo")
 	if got := harness.ReadFile(".the-agent/sessions/foo/session.md"); got != nvim.NEW_SESSION {
 		t.Fatalf("session not created by the binary: %q", got)
+	}
+
+	other := filepath.Join(harness.Dir, "elsewhere")
+	if error := os.Mkdir(other, 0o755); error != nil {
+		t.Fatal(error)
+	}
+	harness.Command("cd " + other)
+	harness.Command("TA bar")
+	if got, want := harness.BufferName(), filepath.Join(harness.Dir, ".the-agent", "sessions", "bar", "session.md"); got != want {
+		t.Fatalf("after :cd the session must stay in the binary's project %q, got %q", want, got)
 	}
 
 	var pid int

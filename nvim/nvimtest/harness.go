@@ -30,6 +30,9 @@ func RepoRoot() string {
 func Start(t *testing.T, config nvim.Config) *Harness {
 	t.Helper()
 	harness := Launch(t)
+	if config.Project == "" {
+		config.Project = harness.Dir
+	}
 	if error := nvim.Attach(harness.Nvim, config); error != nil {
 		t.Fatalf("attach: %v", error)
 	}

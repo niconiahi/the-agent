@@ -25,6 +25,25 @@ func TestTA_CreatesSessionFileAndOpensIt(t *testing.T) {
 	}
 }
 
+func TestTA_StaysInTheProjectAfterNeovimChangesDirectory(t *testing.T) {
+	harness := nvimtest.Start(t, nvimtest.Config())
+	other := filepath.Join(harness.Dir, "elsewhere")
+	if error := os.Mkdir(other, 0o755); error != nil {
+		t.Fatal(error)
+	}
+
+	harness.Command("cd " + other)
+	harness.Command("TA foo")
+
+	want := filepath.Join(harness.Dir, ".the-agent", "sessions", "foo", "session.md")
+	if got := harness.BufferName(); got != want {
+		t.Fatalf("want the session in the project %q, got %q", want, got)
+	}
+	if _, error := os.Stat(filepath.Join(other, ".the-agent")); !os.IsNotExist(error) {
+		t.Fatalf("the session went to Neovim's new directory: %v", error)
+	}
+}
+
 func TestTA_SeedsSystemPromptOnce(t *testing.T) {
 	config := nvimtest.Config()
 	harness := nvimtest.Start(t, config)
