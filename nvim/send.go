@@ -10,6 +10,7 @@ import (
 
 	"github.com/niconiahi/the-agent/message"
 	"github.com/niconiahi/the-agent/orchestrator"
+	"github.com/niconiahi/the-agent/vimtool"
 )
 
 const LOG_LEVEL_ERROR = 4
@@ -94,7 +95,7 @@ func (current *frontend) run(invocation_context context.Context, prepared *reque
 	)
 
 	agent.Subscribe(listener)
-	return agent.Prompt(invocation_context, last)
+	return agent.Prompt(vimtool.WithSession(invocation_context, prepared.directory), last)
 }
 
 func buffer_text(client *neovim.Nvim, buffer neovim.Buffer) (string, error) {
