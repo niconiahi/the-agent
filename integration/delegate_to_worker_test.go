@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -136,5 +137,54 @@ func TestTask_AnAgentAtTheConfiguredDepthLimitGetsNoTask(t *testing.T) {
 	}
 	if !has_task(request_of(provider, "go")[0]) {
 		t.Fatal("the root session should still get task")
+	}
+}
+
+func task_roles(t *testing.T, request sender.LLMContext) []string {
+	t.Helper()
+	for _, schema := range request.Tools {
+		if schema.Name != "task" {
+			continue
+		}
+		var parameters struct {
+			Properties struct {
+				Role struct {
+					Enum []string `json:"enum"`
+				} `json:"role"`
+			} `json:"properties"`
+		}
+		if error := json.Unmarshal(schema.Parameters, &parameters); error != nil {
+			t.Fatal(error)
+		}
+		return parameters.Properties.Role.Enum
+	}
+	t.Fatal("no task tool")
+	return nil
+}
+
+func TestTask_AnExplorerCanOnlyDelegateToExplorers(t *testing.T) {
+	provider := nvimtest.RegisterProvider(t,
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"job": "look around"})}},
+		nvimtest.Text("done", 10),
+	)
+	provider.Script("look around",
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t2", "task", map[string]any{"role": "worker", "job": "change things"})}},
+		nvimtest.Text("looked", 1),
+	)
+	harness := start_turn(t, nvimtest.Config())
+	wait_for_parent(harness)
+
+	if got := task_roles(t, request_of(provider, "go")[0]); !slices.Equal(got, []string{"explorer", "worker"}) {
+		t.Fatalf("the root session's task roles: %v", got)
+	}
+	if got := task_roles(t, request_of(provider, "look around")[0]); !slices.Equal(got, []string{"explorer"}) {
+		t.Fatalf("an explorer's task roles: %v", got)
+	}
+	refused := result_of(t, provider, "t2")
+	if !refused.IsError || result_text(refused) != `unknown role "worker": use explorer` {
+		t.Fatalf("an explorer starting a worker: %q (error %v)", result_text(refused), refused.IsError)
+	}
+	if len(request_of(provider, "change things")) != 0 {
+		t.Fatal("no worker should have run")
 	}
 }
