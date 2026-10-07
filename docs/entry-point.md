@@ -1,6 +1,6 @@
 # cmd/agent — The entry point
 
-The binary has one interface: Neovim. The Lua plugin starts it with `jobstart({ bin, "--nvim" }, { rpc = true })`, so it lives exactly as long as that Neovim and inherits its working directory (the user's project).
+The binary has one interface: Neovim. The Lua plugin starts it with `jobstart({ bin, "--nvim" }, { rpc = true })`, so it lives exactly as long as that Neovim and inherits its working directory (the user's project). That directory, fixed when the job starts, is the one source of truth for where sessions and the system prompt live and where tools run: a later `:cd` in Neovim doesn't move them.
 
 ## main.go
 
