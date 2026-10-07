@@ -41,7 +41,7 @@ func default_tools(client *neovim.Nvim) []tool.Tool {
 		tool.BashTool(),
 		vimtool.Edit(client),
 		tool.WriteTool(),
-		tool.GrepTool(),
+		vimtool.Grep(client),
 		tool.FindTool(),
 		tool.LsTool(),
 	}

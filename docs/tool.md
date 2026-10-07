@@ -67,6 +67,8 @@ Builds the `rg` command with `--no-heading --line-number --color=never` for clea
 
 Truncates output at 100KB. Same reasoning as bash — don't flood the context.
 
+In the `--nvim` binary grep is `vimtool.Grep`, which runs this tool unchanged and then fills Neovim's quickfix list (titled `the-agent grep`, a new list per call) with one entry per hit, so `]q` walks what the agent found. The model's result is byte for byte the rg output above; the hits are parsed back out of it, using the searched path as the filename when rg searched a single file and so printed only `line:text`.
+
 ## find.go — FindTool
 
 Searches for files by glob pattern. Shells out to `fd` for the same reason grep shells out to `rg` — `fd` is fast, respects `.gitignore`, and produces clean output.

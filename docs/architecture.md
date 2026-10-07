@@ -29,7 +29,7 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
 
 **nvim** is the frontend. It answers the Lua plugin's msgpack-RPC requests (`:TA`, `:TASend`, `:TAAbort`, the statusline count, the thinking folds), runs a fresh orchestrator agent per send with the parsed session as history, and streams the reply into the session buffer, which stays locked while the turn runs. `nvim/nvimtest` is its headless-Neovim harness, used by the tests in `/integration`. The Lua side (`plugin/`, `lua/the-agent/`) stays thin: it forwards commands and applies the edits Go asks for.
 
-**vimtool** holds the file tools of the `--nvim` binary, backed by Neovim buffers: `read` and `edit` go through the buffer API (in `lua/the-agent/buffer.lua`), so an agent edit is one undo block, saved at once and visible to the LSP. It imports `tool` for the tool shape and Neovim's Go client; `nvim` imports it only to put the session directory on the turn's context, and `cmd/agent` builds its tools once the client exists. It never imports `nvim`.
+**vimtool** holds the tools that need the editor. They wrap or replace `tool` tools and take the Neovim client; `cmd/agent` builds them once the client exists. `read` and `edit` go through the buffer API (in `lua/the-agent/buffer.lua`), so an agent edit is one undo block, saved at once and visible to the LSP. `vimtool.Grep` runs the plain grep and fills the quickfix list with its hits. `nvim` imports it only to put the session directory on the turn's context. It never imports `nvim`.
 
 Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool and session, then orchestrator, then nvim.
 

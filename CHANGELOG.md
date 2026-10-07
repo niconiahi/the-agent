@@ -1,41 +1,5 @@
 # Changelog
 
-## Milestone: Buffer-backed file tools
-
-The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing.
-
-### Package: `vimtool`
-
-**Functions**:
-- `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
-- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark
-- `Tools(client *neovim.Nvim) []tool.Tool` - every buffer-backed tool
-- `WithSession(invocation_context context.Context, directory string) context.Context` - the calling agent's session directory for the tools
-
-### Package: `tool`
-
-**Functions**:
-- `Numbered(content string, arguments map[string]any) ToolResult` - read's numbered, truncated output
-- `Diff(old_text string, new_text string) string` - edit's minus/plus listing (was `generate_diff`)
-
-### Package: `nvim`
-
-**Methods**:
-- `run` puts the session directory on the turn's context with `vimtool.WithSession`
-
-### Package: `nvim/nvimtest`
-
-**Functions**:
-- `StartWithTools(t *testing.T, config nvim.Config, build func(*neovim.Nvim) []tool.Tool) *Harness` - `Start` with tools bound to the harness's Neovim
-
-### Lua plugin
-
-- `lua/the-agent/buffer.lua` - `read`, `edit` and `release`, each one RPC request
-
-### Integration tests
-
-`integration/read_files_through_buffers_test.go` and `integration/edit_files_through_buffers_test.go` script `read` and `edit` calls through `:TASend` and assert the tool result, buffer, disk, undo and `changedtick`.
-
 ## Milestone: Sessions as files
 
 the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/session.md`, the model's whole context: `:TA <name>` opens or creates it, `:TASend` streams the reply into it (locked while the turn runs), `:TAAbort` stops a turn. Every turn, tool call, tool result and the session's creation carry an ISO 8601 timestamp that the model also sees. Orphaned tool calls or results are dropped from the request and removed from the file (one `u` brings them back), images live beside the file, and a token ceiling refuses oversized sends. The Bubble Tea `chat` package is gone.
@@ -114,3 +78,44 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 ### Integration tests
 
 `integration/` drives a headless Neovim through `nvimtest` and the real binary: opening, sending, streaming, tool turns, orphan repair, the ceiling, the statusline, images, the system prompt, key mappings and the lazy.nvim spec.
+
+## Milestone: Buffer-backed file tools
+
+The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. `grep` also fills the quickfix list.
+
+### Package: `vimtool`
+
+**Constants**:
+- `QUICKFIX_TITLE = "the-agent grep"` - title of the quickfix list grep fills
+
+**Functions**:
+- `Grep(client *neovim.Nvim) tool.Tool` - `tool.GrepTool` with the same result, plus one quickfix entry per hit
+- `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
+- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark
+- `Tools(client *neovim.Nvim) []tool.Tool` - the buffer-backed file tools
+- `WithSession(invocation_context context.Context, directory string) context.Context` - the calling agent's session directory for the tools
+
+### Package: `tool`
+
+**Functions**:
+- `Numbered(content string, arguments map[string]any) ToolResult` - read's numbered, truncated output
+- `Diff(old_text string, new_text string) string` - edit's minus/plus listing (was `generate_diff`)
+
+### Package: `nvim`
+
+**Methods**:
+- `run` puts the session directory on the turn's context with `vimtool.WithSession`
+
+### Package: `nvim/nvimtest`
+
+**Functions**:
+- `StartWithTools(t *testing.T, config nvim.Config, build func(*neovim.Nvim) []tool.Tool) *Harness` - `Start` with tools bound to the harness's Neovim
+
+### Lua plugin
+
+- `lua/the-agent/buffer.lua` - `read`, `edit` and `release`, each one RPC request
+
+### Integration tests
+
+- `integration/fill_quickfix_from_grep_test.go` - a grep tool call fills the quickfix list with file, line and text per hit, for a directory and a single file, and the model's result is rg's output
+- `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`
