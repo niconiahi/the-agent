@@ -453,7 +453,7 @@ func kimi_stream(invocation_context context.Context, target *model.Model, llm_co
 						tool_call_names[tool_index] = tc.Function.Name
 						tool_call_args[tool_index] = ""
 						assistant_message.Content = append(assistant_message.Content, message.ToolCall{})
-						stream.Push(EventToolCallStart{ContentIndex: content_index, Message: assistant_message})
+						stream.Push(EventToolCallStart{ContentIndex: content_index, ID: tc.ID, Name: tc.Function.Name, Message: assistant_message})
 					}
 					if tc.Function.Arguments != "" {
 						tool_call_args[tool_index] += tc.Function.Arguments

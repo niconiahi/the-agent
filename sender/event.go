@@ -68,7 +68,10 @@ func (EventThinkingEnd) EventType() string { return "thinking_end" }
 
 type EventToolCallStart struct {
 	ContentIndex int
-	Message      *message.AssistantMessage
+	// ID and Name identify the call before its arguments stream.
+	ID      string
+	Name    string
+	Message *message.AssistantMessage
 }
 
 func (EventToolCallStart) is_event()         {}

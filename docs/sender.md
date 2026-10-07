@@ -14,7 +14,7 @@ The `Event` interface is sealed (unexported `is_event()` marker). Twelve concret
 
 **Thinking events:** `EventThinkingStart`, `EventThinkingDelta`, `EventThinkingEnd`. Same triplet pattern for the model's reasoning trace. This is what you see when the model "thinks out loud" before answering.
 
-**Tool call events:** `EventToolCallStart`, `EventToolCallDelta`, `EventToolCallEnd`. The model is requesting a tool call. The deltas carry fragments of the JSON arguments as they stream in. The end event carries the complete, parsed `ToolCall` with its ID, name, and deserialized arguments.
+**Tool call events:** `EventToolCallStart`, `EventToolCallDelta`, `EventToolCallEnd`. The model is requesting a tool call. The start event carries the call's `ID` and `Name`, so a consumer knows which tool is streaming before its arguments arrive (the frontend previews `edit` calls this way). The deltas carry fragments of the JSON arguments as they stream in. The end event carries the complete, parsed `ToolCall` with its ID, name, and deserialized arguments.
 
 **Lifecycle events:** `EventStart` (response has begun), `EventDone` (response is complete, carries stop reason), `EventError` (something went wrong, carries stop reason — either `"error"` or `"aborted"`).
 
