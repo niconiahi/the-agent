@@ -20,7 +20,7 @@ import (
 const PREVIEW_TOOL = "edit"
 
 // previewer plays edit calls out in the follow window while their arguments
-// stream: the path opens the file, old_text highlights the region, new_text
+// stream, when the agent making them is the one followed (see follow.lua): the path opens the file, old_text highlights the region, new_text
 // grows as virtual text over it. Updates go to Neovim at most once per
 // FLUSH_INTERVAL. The preview is only extmarks; the real edit is the tool's.
 type previewer struct {
@@ -37,6 +37,7 @@ type previewer struct {
 
 type edit_preview struct {
 	id        string
+	agent     string
 	arguments string
 	shown     map[string]string
 }
@@ -79,7 +80,7 @@ func (current *previewer) handle(event orchestrator.AgentEvent) {
 			if update.Name != PREVIEW_TOOL {
 				return
 			}
-			preview := &edit_preview{id: update.ID, shown: map[string]string{}}
+			preview := &edit_preview{id: update.ID, agent: typed.AgentID(), shown: map[string]string{}}
 			current.streaming[update.ContentIndex] = preview
 			current.previews[update.ID] = preview
 		case sender.EventToolCallDelta:
@@ -140,7 +141,7 @@ func (current *previewer) flush(previews map[string]*edit_preview) {
 		}
 		preview.shown = shown
 		changed = true
-		batch.ExecLua(`require("the-agent.follow").preview(...)`, nil, preview.id, shown)
+		batch.ExecLua(`require("the-agent.follow").preview(...)`, nil, preview.id, preview.agent, shown)
 	}
 	if changed {
 		current.failure = errors.Join(current.failure, batch.Execute())
