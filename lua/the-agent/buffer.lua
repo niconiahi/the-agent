@@ -213,8 +213,13 @@ local function prepare(path, agent, stamp)
   if not sidecar then
     return nil, failure
   end
+  -- The reload and the agent's change run in one RPC request, which would
+  -- make them one undo block, so one u would bring my unsaved text back.
+  -- Setting 'undolevels' to itself breaks the undo sequence (:h undo-break),
+  -- so one u reverts only the agent's change and lands on the disk version.
   vim.api.nvim_buf_call(buffer, function()
     vim.cmd("silent edit!")
+    vim.cmd("let &l:undolevels = &l:undolevels")
   end)
   require("the-agent").notify(
     "your unsaved changes to " .. vim.fn.fnamemodify(path, ":.") .. " were saved to " .. sidecar,

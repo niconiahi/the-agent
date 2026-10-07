@@ -115,6 +115,10 @@ func TestEdit_SetsMyUnsavedChangesAsideInASidecarThenEditsTheDiskVersion(t *test
 	if len(notes) != 1 || !strings.Contains(notes[0], filepath.Join(harness.Dir, sidecar)) {
 		t.Fatalf("notifications: %q", notes)
 	}
+	undo(harness, path)
+	if got := buffer_lines(harness, path); got != "one\n" {
+		t.Fatalf("after one undo: %q", got)
+	}
 }
 
 func TestEdit_CleanBufferPicksUpWhatChangedOnDiskFirst(t *testing.T) {
