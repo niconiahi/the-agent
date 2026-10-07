@@ -6,6 +6,8 @@ The binary has one interface: Neovim. The Lua plugin starts it with `jobstart({ 
 
 Without `--nvim` the binary prints a short usage message pointing at the plugin and `:TA`, and exits with status 2. There is no terminal UI; the Bubble Tea `chat` package was deleted once the Neovim frontend worked.
 
+With `setup` as the first argument, it runs `the-agent setup` (see `setup.md`) and exits: 0 when every step succeeded, 1 with the error on stderr otherwise.
+
 With `--nvim`:
 
 1. Load `.env` from the working directory (the user's project) into the environment.

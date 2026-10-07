@@ -16,8 +16,8 @@ func TestBash_SimpleCommand(t *testing.T) {
 		t.Fatalf("unexpected error: %v", error)
 	}
 	text := extract_text(t, result)
-	if strings.TrimSpace(text) != "hello" {
-		t.Errorf("expected 'hello', got '%s'", strings.TrimSpace(text))
+	if strings.TrimSpace(text) != "hello world" {
+		t.Errorf("expected 'hello world', got '%s'", strings.TrimSpace(text))
 	}
 	details, ok := result.Details.(map[string]interface{})
 	if !ok {

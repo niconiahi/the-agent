@@ -12,6 +12,7 @@ import (
 	"github.com/niconiahi/the-agent/model"
 	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/sender"
+	"github.com/niconiahi/the-agent/setup"
 	"github.com/niconiahi/the-agent/tool"
 	"github.com/niconiahi/the-agent/vimtool"
 
@@ -24,9 +25,16 @@ const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nv
 
 Install the plugin (see extras/lazy.lua for a lazy.nvim spec), then use
 :TA <name> to open a session, :TASend to send it and :TAAbort to stop a turn.
+
+Once per project, let the agent's shell commands run as _the-agent:
+
+  sudo the-agent setup [--dry-run] [--check | --uninstall [--all]] [project]
 `
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "setup" {
+		os.Exit(run_setup(os.Args[2:]))
+	}
 	if len(os.Args) != 2 || os.Args[1] != "--nvim" {
 		fmt.Fprint(os.Stderr, USAGE)
 		os.Exit(2)
@@ -77,6 +85,18 @@ func run_nvim() {
 	if error := client.Serve(); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
+}
+
+func run_setup(arguments []string) int {
+	host, error := setup.Local(os.Stdout)
+	if error == nil {
+		error = setup.Run(host, arguments)
+	}
+	if error != nil {
+		fmt.Fprintf(os.Stderr, "the-agent setup: %v\n", error)
+		return 1
+	}
+	return 0
 }
 
 func load_env(path string) {
