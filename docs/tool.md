@@ -31,7 +31,7 @@ Truncates at 5000 lines by default. If the file is longer than the limit, append
 
 Returns an error if the file doesn't exist. This is intentional — the model should know it asked for something that isn't there, rather than getting an empty result and being confused.
 
-The numbering and truncation live in `Numbered(content, arguments)`, which the buffer-backed read in `vimtool` shares. The `--nvim` binary uses that read and edit instead of these two (see `vimtool.md`).
+The numbering and truncation live in `Numbered(content, line_range)`, which the buffer-backed read in `vimtool` shares; `LineRangeFrom(arguments)` turns the `offset` and `limit` arguments into a `LineRange`, defaulting to line 1 and `MAX_READ_LINES`. The `--nvim` binary uses that read and edit instead of these two (see `vimtool.md`).
 
 ## bash.go — BashTool
 
