@@ -129,3 +129,39 @@ The agent's file tools go through Neovim buffers. `read` returns the buffer when
 - `integration/write_files_through_buffers_test.go` - `write` creates a file, replaces an open buffer as one undo block, and sets my unsaved changes aside in a sidecar first, after which one undo reverts to the disk version
 - `integration/filter_buffers_through_commands_test.go` - `filter` with `sort` and `gofmt` as one saved undo block; a failing command is a tool error that changes nothing
 - `integration/report_edit_diagnostics_test.go` - diagnostics published through `vim.diagnostic.set` and through an in-process fake LSP; only new ones inside the edited region are reported, no LSP means no wait, and a silent LSP costs at most `DIAGNOSTICS_WAIT`
+
+## Milestone: _the-agent sandbox
+
+`sudo the-agent setup [project]` prepares a project so the agent's shell commands can run as `_the-agent`. On the first project it creates the user (no password, `/usr/bin/false` shell), writes `/etc/sudoers.d/the-agent` (`<me> ALL=(_the-agent) NOPASSWD: ALL`, installed only after `visudo -cf` accepts the draft) and creates `~_the-agent/{gocache,gomodcache,tmp,clones}`; on every project it grants an inheritable read ACL (`chmod +a` on macOS, `setfacl` on Linux), search on the parent folders up to my home, and records the project in `~_the-agent/projects`. Each step prints `exists` or `created`, so rerunning it changes nothing, and it ends with a check. It refuses `/`, my home or a folder containing it, and anything that isn't a directory. `--dry-run` prints every command without running one and needs no root, `--check` runs `sudo -n -u _the-agent ls <project>` and names Full Disk Access when macOS TCC blocks it, `--uninstall` undoes one project (keeping parent search other projects still need) and `--uninstall --all` removes every project's ACLs, the home, the sudoers file and the user.
+
+### Package: `setup`
+
+**Types**:
+- `Host` - the machine setup acts on: system, invoking user and home, working directory, root or not, the shell and where output goes
+- `Shell` - runs one `Command` and returns its combined output; the seam tests fake
+- `Command{Args, Input}` - one command and its stdin; `String()` is what `--dry-run` prints
+
+**Constants**:
+- `USER = "_the-agent"`, `SUDOERS = "/etc/sudoers.d/the-agent"`, `SUDOERS_DRAFT` - the user and its sudoers file (the draft name has a `.`, so sudo ignores it)
+- `DARWIN_HOME = "/var/the-agent"`, `LINUX_HOME = "/var/lib/the-agent"` - `~_the-agent`
+- `DARWIN_READ`, `DARWIN_SEARCH` - the macOS ACL entries for a project and its parents
+- `DARWIN_FIRST_ID = 400`, `DARWIN_LAST_ID = 499` - where the macOS user and group id is picked
+- `USAGE` - the setup command line
+
+**Functions**:
+- `Run(host Host, arguments []string) error` - `the-agent setup` with its flags and optional project
+- `Local(output io.Writer) (Host, error)` - this machine, with `SUDO_USER` as the invoking user when run under sudo
+
+**Errors**:
+- `ERROR_NOT_ROOT` - setup or uninstall without root and without `--dry-run`
+- `ERROR_ALL_WITHOUT_UNINSTALL` - `--all` alone
+- `ERROR_UNSUPPORTED_SYSTEM` - neither macOS nor Linux
+- `ERROR_NO_FREE_ID` - no free macOS id between 400 and 499
+
+### Package: `cmd/agent`
+
+- `the-agent setup …` runs `setup.Run` on `setup.Local`, printing to stdout and exiting 1 with the error on stderr
+
+### Integration tests
+
+- `integration/set_up_the_agent_sandbox_test.go` - the built binary's `setup --dry-run` prints the project's ACL step and check without root, and `setup /` is refused with exit status 1

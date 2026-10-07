@@ -17,6 +17,8 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
                       ↑    └──→ vimtool ──→ tool
                       │            ↑
                   cmd/agent ───────┘
+                      │
+                      └──→ setup
 ```
 
 **message** and **model** are the two roots. They don't import anything internal. They don't know about each other. `message` defines the data that flows through the system — what a user said, what the assistant replied, what a tool returned. `model` defines the LLM being targeted — its endpoint, its limits, its pricing.
@@ -30,6 +32,8 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
 **nvim** is the frontend. It answers the Lua plugin's msgpack-RPC requests (`:TA`, `:TASend`, `:TAAbort`, the statusline count, the thinking folds), runs a fresh orchestrator agent per send with the parsed session as history, and streams the reply into the session buffer, which stays locked while the turn runs. `nvim/nvimtest` is its headless-Neovim harness, used by the tests in `/integration`. The Lua side (`plugin/`, `lua/the-agent/`) stays thin: it forwards commands and applies the edits Go asks for.
 
 **vimtool** holds the tools that need the editor. They wrap or replace `tool` tools and take the Neovim client; `cmd/agent` builds them once the client exists. `read`, `edit`, `write` and `filter` go through the buffer API (in `lua/the-agent/buffer.lua`), so an agent change is one undo block, saved at once and visible to the LSP, and my unsaved changes are set aside in a session sidecar before any agent change touches the buffer. `vimtool.Grep` runs the plain grep and fills the quickfix list with its hits. `nvim` imports it only to put the session directory and clock on the turn's context. It never imports `nvim`.
+
+**setup** is `the-agent setup`, the one-time, root-run preparation that lets shell commands run as the unprivileged `_the-agent` user: the user, its sudoers entry, its caches, and read ACLs on each project. It imports nothing internal and talks to the machine only through a `Shell` that runs commands, which is what `--dry-run` prints and what its tests fake. See `setup.md`.
 
 Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool and session, then orchestrator, then nvim.
 
