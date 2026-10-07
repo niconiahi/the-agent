@@ -2,13 +2,17 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	neovim "github.com/neovim/go-client/nvim"
 	"github.com/niconiahi/the-agent/chat"
 	"github.com/niconiahi/the-agent/model"
+	"github.com/niconiahi/the-agent/nvim"
 	"github.com/niconiahi/the-agent/orchestrator"
 	"github.com/niconiahi/the-agent/sender"
 	"github.com/niconiahi/the-agent/tool"
@@ -20,6 +24,11 @@ const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit fil
 
 func main() {
 	load_env(".env")
+
+	if len(os.Args) > 1 && os.Args[1] == "--nvim" {
+		run_nvim()
+		return
+	}
 
 	api_key := os.Getenv("KIMI_API_KEY")
 	if api_key == "" {
@@ -41,16 +50,7 @@ func main() {
 	}
 
 	target := model.KimiK25()
-
-	tools := []tool.Tool{
-		tool.ReadTool(),
-		tool.BashTool(),
-		tool.EditTool(),
-		tool.WriteTool(),
-		tool.GrepTool(),
-		tool.FindTool(),
-		tool.LsTool(),
-	}
+	tools := default_tools()
 
 	agent := orchestrator.New(
 		orchestrator.WithModel(&target),
@@ -75,6 +75,52 @@ func main() {
 	if _, error := program.Run(); error != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", error)
 		os.Exit(1)
+	}
+}
+
+func default_tools() []tool.Tool {
+	return []tool.Tool{
+		tool.ReadTool(),
+		tool.BashTool(),
+		tool.EditTool(),
+		tool.WriteTool(),
+		tool.GrepTool(),
+		tool.FindTool(),
+		tool.LsTool(),
+	}
+}
+
+// run_nvim serves msgpack-RPC on stdio for the Neovim that started this
+// process with jobstart(..., { rpc = true }). It returns when that Neovim
+// exits. stdout is the RPC pipe, so nothing else may write to it.
+func run_nvim() {
+	log.SetOutput(os.Stderr)
+
+	target := model.KimiK25()
+	api_key := os.Getenv("KIMI_API_KEY")
+	config := nvim.Config{
+		Model:         &target,
+		SystemPrompt:  SYSTEM_PROMPT,
+		Tools:         default_tools(),
+		StreamOptions: &sender.StreamOptions{APIKey: api_key},
+		Ready: func() error {
+			if api_key == "" {
+				return errors.New("KIMI_API_KEY environment variable is required")
+			}
+			return nil
+		},
+	}
+
+	client, error := neovim.New(os.Stdin, os.Stdout, os.Stdout, log.Printf)
+	if error != nil {
+		log.Fatalf("the-agent: %v", error)
+	}
+	if error := nvim.Attach(client, config); error != nil {
+		log.Fatalf("the-agent: %v", error)
+	}
+
+	if error := client.Serve(); error != nil {
+		log.Fatalf("the-agent: %v", error)
 	}
 }
 

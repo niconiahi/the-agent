@@ -39,8 +39,22 @@ func RepoRoot() string {
 }
 
 // Start launches a headless Neovim with the plugin loaded and the Go side
-// attached with config. It skips the test when nvim is not installed.
+// attached in-process with config. It skips the test when nvim is not
+// installed.
 func Start(t *testing.T, config nvim.Config) *Harness {
+	t.Helper()
+	harness := Launch(t)
+	if error := nvim.Attach(harness.Nvim, config); error != nil {
+		t.Fatalf("attach: %v", error)
+	}
+	harness.Setup(`{ chan = ... }`, harness.Nvim.ChannelID())
+	return harness
+}
+
+// Launch starts a headless Neovim with the plugin on the runtimepath but
+// does not attach the Go side or configure the plugin. Use it with Setup to
+// drive a real `the-agent --nvim` binary.
+func Launch(t *testing.T) *Harness {
 	t.Helper()
 	if _, error := exec.LookPath("nvim"); error != nil {
 		t.Skip("nvim is not on PATH")
@@ -62,14 +76,16 @@ func Start(t *testing.T, config nvim.Config) *Harness {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	if error := nvim.Attach(client, config); error != nil {
-		t.Fatalf("attach: %v", error)
-	}
-	if error := client.ExecLua(`require("the-agent").setup({ chan = ... })`, nil, client.ChannelID()); error != nil {
-		t.Fatalf("plugin setup: %v", error)
-	}
-
 	return &Harness{T: t, Nvim: client, Dir: dir}
+}
+
+// Setup calls require("the-agent").setup(<options>), where options is a Lua
+// table expression that can refer to args as `...`.
+func (harness *Harness) Setup(options string, args ...any) {
+	harness.T.Helper()
+	if error := harness.Nvim.ExecLua(`require("the-agent").setup(`+options+`)`, nil, args...); error != nil {
+		harness.T.Fatalf("plugin setup: %v", error)
+	}
 }
 
 // Command runs an Ex command and fails the test if it errors.
