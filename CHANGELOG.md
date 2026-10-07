@@ -81,6 +81,8 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 
 ## Milestone: Buffer-backed file tools
 
+The agent's file tools go through Neovim buffers. `read` returns the buffer when it is loaded and clean and the disk otherwise, and records the buffer's `changedtick` per agent. `edit` replaces `old_text` in the buffer as one undo block and saves at once, loading files that aren't open into a buffer first; unmatched `old_text` changes nothing. `grep` also fills the quickfix list.
+
 ### Package: `vimtool`
 
 **Constants**:
@@ -88,7 +90,32 @@ the-agent runs only inside Neovim. A session is `.the-agent/sessions/<name>/sess
 
 **Functions**:
 - `Grep(client *neovim.Nvim) tool.Tool` - `tool.GrepTool` with the same result, plus one quickfix entry per hit
+- `Read(client *neovim.Nvim) tool.Tool` - buffer-backed read that records `b:the_agent_ticks`
+- `Edit(client *neovim.Nvim) tool.Tool` - buffer-backed edit, one undo block, saved, region tracked with an extmark
+- `Tools(client *neovim.Nvim) []tool.Tool` - the buffer-backed file tools
+- `WithSession(invocation_context context.Context, directory string) context.Context` - the calling agent's session directory for the tools
+
+### Package: `tool`
+
+**Functions**:
+- `Numbered(content string, arguments map[string]any) ToolResult` - read's numbered, truncated output
+- `Diff(old_text string, new_text string) string` - edit's minus/plus listing (was `generate_diff`)
+
+### Package: `nvim`
+
+**Methods**:
+- `run` puts the session directory on the turn's context with `vimtool.WithSession`
+
+### Package: `nvim/nvimtest`
+
+**Functions**:
+- `StartWithTools(t *testing.T, config nvim.Config, build func(*neovim.Nvim) []tool.Tool) *Harness` - `Start` with tools bound to the harness's Neovim
+
+### Lua plugin
+
+- `lua/the-agent/buffer.lua` - `read`, `edit` and `release`, each one RPC request
 
 ### Integration tests
 
 - `integration/fill_quickfix_from_grep_test.go` - a grep tool call fills the quickfix list with file, line and text per hit, for a directory and a single file, and the model's result is rg's output
+- `integration/read_files_through_buffers_test.go`, `integration/edit_files_through_buffers_test.go` - scripted `read` and `edit` calls through `:TASend`; asserts the tool result, buffer, disk, undo and `changedtick`

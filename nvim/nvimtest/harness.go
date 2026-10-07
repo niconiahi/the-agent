@@ -12,6 +12,7 @@ import (
 	neovim "github.com/neovim/go-client/nvim"
 
 	"github.com/niconiahi/the-agent/nvim"
+	"github.com/niconiahi/the-agent/tool"
 )
 
 type Harness struct {
@@ -29,7 +30,15 @@ func RepoRoot() string {
 
 func Start(t *testing.T, config nvim.Config) *Harness {
 	t.Helper()
+	return StartWithTools(t, config, nil)
+}
+
+func StartWithTools(t *testing.T, config nvim.Config, build func(*neovim.Nvim) []tool.Tool) *Harness {
+	t.Helper()
 	harness := Launch(t)
+	if build != nil {
+		config.Tools = append(append([]tool.Tool{}, config.Tools...), build(harness.Nvim)...)
+	}
 	if config.Project == "" {
 		config.Project = harness.Dir
 	}

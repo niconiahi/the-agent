@@ -62,14 +62,14 @@ func execute_edit(_ context.Context, _ string, arguments map[string]interface{})
 		return ToolResult{}, fmt.Errorf("failed to write file: %v", error)
 	}
 
-	diff := generate_diff(old_text, new_text)
+	diff := Diff(old_text, new_text)
 
 	return ToolResult{
 		Content: []message.Content{message.TextContent{Text: fmt.Sprintf("Edited %s\n\n%s", path, diff)}},
 	}, nil
 }
 
-func generate_diff(old_text string, new_text string) string {
+func Diff(old_text string, new_text string) string {
 	old_lines := strings.Split(old_text, "\n")
 	new_lines := strings.Split(new_text, "\n")
 

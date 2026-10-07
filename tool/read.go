@@ -37,7 +37,11 @@ func execute_read(_ context.Context, _ string, arguments map[string]any) (ToolRe
 		return ToolResult{}, fmt.Errorf("failed to read file: %v", error)
 	}
 
-	lines := strings.Split(string(data), "\n")
+	return Numbered(string(data), arguments), nil
+}
+
+func Numbered(content string, arguments map[string]any) ToolResult {
+	lines := strings.Split(content, "\n")
 
 	offset := 1
 	if raw_offset, ok := arguments["offset"].(float64); ok {
@@ -56,7 +60,7 @@ func execute_read(_ context.Context, _ string, arguments map[string]any) (ToolRe
 	if start >= len(lines) {
 		return ToolResult{
 			Content: []message.Content{message.TextContent{Text: ""}},
-		}, nil
+		}
 	}
 
 	end := start + limit
@@ -76,5 +80,5 @@ func execute_read(_ context.Context, _ string, arguments map[string]any) (ToolRe
 
 	return ToolResult{
 		Content: []message.Content{message.TextContent{Text: builder.String() + truncated}},
-	}, nil
+	}
 }

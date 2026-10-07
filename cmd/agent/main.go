@@ -37,9 +37,9 @@ func main() {
 
 func default_tools(client *neovim.Nvim) []tool.Tool {
 	return []tool.Tool{
-		tool.ReadTool(),
+		vimtool.Read(client),
 		tool.BashTool(),
-		tool.EditTool(),
+		vimtool.Edit(client),
 		tool.WriteTool(),
 		vimtool.Grep(client),
 		tool.FindTool(),
