@@ -95,6 +95,37 @@ func TestTASend_ContinuingAChildAmendsItsOwnResultWhenTurnsReuseACallID(t *testi
 	}
 }
 
+func TestTASend_ContinuingAChildWhileItsParentRunsAmendsTheParentWhenItsTurnEnds(t *testing.T) {
+	held := nvimtest.Reply{ToolCalls: []message.ToolCall{call("p1", "ls", map[string]any{})}, Gate: nvimtest.NewGate()}
+	provider := nvimtest.RegisterProvider(t,
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"job": JOB})}},
+		nvimtest.Text("done", 10),
+		held,
+		nvimtest.Text("done again", 11),
+	)
+	provider.Script(JOB, nvimtest.Text("Foo is called at a.go:3", 7), nvimtest.Text("Foo is called at a.go:3 and b.go:9", 8))
+	harness := start_turn(t, nvimtest.Config())
+	wait_for_parent(harness)
+	harness.SetText(harness.Text() + "more\n")
+	harness.Command("TASend")
+	held.Gate.Step(t)
+
+	continue_child(harness, "you missed b.go")
+	amended := "```tool_result id=t1 amended=2026-10-06T14:32:00Z\nFoo is called at a.go:3 and b.go:9\n```"
+	if strings.Contains(session_on_disk(harness, "foo"), amended) {
+		t.Fatalf("the running parent was amended before its turn ended:\n%s", session_on_disk(harness, "foo"))
+	}
+
+	held.Gate.Step(t)
+	harness.WaitFor("the amended parent after its turn", func() bool {
+		text := session_on_disk(harness, "foo")
+		return strings.Contains(text, amended) && strings.HasSuffix(text, "\ndone again\n\n## user\n\n")
+	})
+	if got := buffer_lines(harness, nvim.SessionPath(harness.Dir, "foo")); !strings.Contains(got, amended) {
+		t.Fatalf("the parent buffer should show the amended result:\n%s", got)
+	}
+}
+
 func TestTASend_AContinuedWorkerKeepsItsEditingTools(t *testing.T) {
 	provider := nvimtest.RegisterProvider(t,
 		nvimtest.Reply{ToolCalls: []message.ToolCall{call("t1", "task", map[string]any{"role": "worker", "job": JOB})}},
