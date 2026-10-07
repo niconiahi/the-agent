@@ -3,6 +3,7 @@ package nvimtest
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,7 +81,50 @@ func Text(text string, total_tokens int) Reply {
 type Provider struct {
 	mutex    sync.Mutex
 	replies  []Reply
+	scripts  []script
 	requests []sender.LLMContext
+}
+
+type script struct {
+	key     string
+	replies []Reply
+}
+
+// Script gives the agent whose first user message contains key its own
+// replies, so agents running at the same time (parallel sessions, subagents)
+// each get theirs no matter which asks first. Requests that match no script
+// take from the replies given to RegisterProvider.
+func (provider *Provider) Script(key string, replies ...Reply) {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	provider.scripts = append(provider.scripts, script{key: key, replies: replies})
+}
+
+func (provider *Provider) queue(messages []message.Message) *[]Reply {
+	first := first_user_text(messages)
+	for index := range provider.scripts {
+		if strings.Contains(first, provider.scripts[index].key) {
+			return &provider.scripts[index].replies
+		}
+	}
+	return &provider.replies
+}
+
+func first_user_text(messages []message.Message) string {
+	for _, current := range messages {
+		user, ok := current.(message.UserMessage)
+		if !ok {
+			continue
+		}
+		text := ""
+		for _, content := range user.Content {
+			if part, ok := content.(message.TextContent); ok {
+				text += part.Text
+			}
+		}
+		return text
+	}
+	return ""
 }
 
 func RegisterProvider(t *testing.T, replies ...Reply) *Provider {
@@ -106,9 +150,9 @@ func (provider *Provider) stream(invocation_context context.Context, target *mod
 		Tools:        llm_context.Tools,
 	})
 	reply := Reply{StopReason: message.STOP_REASON_ERROR, ErrorMessage: "nvimtest: no scripted reply left"}
-	if len(provider.replies) > 0 {
-		reply = provider.replies[0]
-		provider.replies = provider.replies[1:]
+	if queue := provider.queue(llm_context.Messages); len(*queue) > 0 {
+		reply = (*queue)[0]
+		*queue = (*queue)[1:]
 	}
 	provider.mutex.Unlock()
 

@@ -59,6 +59,7 @@ type frontend struct {
 	config  Config
 	mutex   sync.Mutex
 	running map[int]*turn
+	routes  routes
 }
 
 func Attach(client *neovim.Nvim, config Config) error {

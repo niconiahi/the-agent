@@ -222,7 +222,7 @@ Rules:
 
 It lives in its own `subagent` package above `orchestrator`, because `tool` can't import `orchestrator` without a cycle. Passing the `Execute` context into the child's `Prompt` makes aborting the parent abort its children. Under `TOOL_EXECUTION_PARALLEL`, several `task` calls in one turn run concurrently.
 
-`AgentEvent`s currently carry no source, so the UI can't tell a child's stream from the parent's. Events gain an agent ID (or `task` subscribes to its child and forwards events tagged with one); the `nvim` package routes each agent's stream into its own `session.md`.
+Every `AgentEvent` carries the ID of the agent that emitted it (`AgentID()`, set with `orchestrator.WithID`). The `nvim` package names each agent after its session directory and routes each event to that agent's stream, so each agent writes only into its own `session.md`. `task` subscribes to its child and forwards the child's events, still tagged with the child's ID, so they land in the child's file.
 
 ## Concurrency
 
