@@ -21,6 +21,7 @@ func (current *frontend) tools(client *neovim.Nvim) []tool.Tool {
 		StreamOptions: current.config.StreamOptions,
 		Tools:         current.config.Tools,
 		ExplorerTools: current.config.ExplorerTools,
+		MaxDepth:      current.config.MaxDepth,
 		SystemPrompt:  SystemPromptPath(current.config.Project),
 		Host:          host{frontend: current, client: client},
 		Now:           current.config.Now,
