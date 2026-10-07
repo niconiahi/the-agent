@@ -77,6 +77,10 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		current.finish(buffer)
 		return error
 	}
+	// messages already leave out orphaned tool blocks; they leave the file
+	// once the turn ends (see repair_buffer).
+	parsed.Repair()
+	repaired := parsed.Render()
 
 	output, error := start_stream(client, handle, stamped)
 	if error != nil {
@@ -98,6 +102,9 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		}
 		if finish_error := output.finish(); finish_error != nil {
 			error = errors.Join(error, finish_error)
+		}
+		if repair_error := repair_buffer(client, handle, stamped, repaired); repair_error != nil {
+			error = errors.Join(error, repair_error)
 		}
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
