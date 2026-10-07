@@ -174,6 +174,8 @@ The clone redirects writes; the Unix user is what blocks them. A command that `c
 
 Measured on an M1 Max: cloning costs about 10 µs per file — 0.1 s at 10k files, 1 s at 100k — and the diff about as much again. Deleting the clone runs in the background.
 
+As built on macOS (`tool/clonefile.go`, see `docs/tool.md`): the clone lives in `_the-agent`'s mode-0700 home, so my process can't read it. Rather than have setup open that home up, every clone step runs as `_the-agent` through the same `sudo -n` path as the command, and the results come back over stdout. That covers making the clone (it has to be `_the-agent`'s anyway, since a clone belongs to whoever creates it), listing it, and streaming the changed files back as a tar. The diff in step 3 compares the clone's listing before and after the command (inode, size, mtime, mode) rather than the clone with the project, so whatever I save in the project while the command runs is left alone. Content that already matches the project is skipped. The clone path is `~_the-agent/clones/<name>-<hash of the project path>`. A stale clone is moved aside before the next one is made, because `clonefile(2)` needs a destination that doesn't exist. Symbolic links and binary files are reported to the model, not applied.
+
 ## Streaming
 
 **Sessions.** `sender/kimi.go` emits `EventTextDelta` per chunk. The `nvim` package batches deltas every ~40ms and appends them to the end of the session's `session.md` in one `Batch` call — per-token RPC round trips would stutter.

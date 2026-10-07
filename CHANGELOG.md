@@ -200,3 +200,34 @@ The `bash` tool is gone. `bash_read` runs every command as `_the-agent` in the r
 - `integration/open_session_test.go` - `:TA` in a project that isn't set up names `sudo the-agent setup` and leaves no `.the-agent/`
 - `integration/run_binary_as_neovim_job_test.go`, `integration/install_with_lazy_nvim_test.go` - the built binary's `:TA` in a `t.TempDir()` project (mode 0700, never readable by `_the-agent`) now answers with the setup message; session creation by the binary and the `:cd` check moved to `TestNvimMode_OpensSessionsInASetUpProject`, which skips unless setup has run on the repository
 - `integration/run_commands_as_the_agent_test.go` - in a temp project inside the repo (`$TMPDIR` is mode 0700, so `_the-agent` can't enter it): a write is "Permission denied" and changes nothing, `$TMPDIR` is `~_the-agent/tmp` and writable, `go test` passes with `~_the-agent`'s caches; all skip with the setup command when `_the-agent` can't read the project
+
+### `bash_write` on macOS
+
+`bash_write` runs a command that must write the project, such as `go mod tidy` or `go generate`, as `_the-agent` in a copy-on-write clone at the stable path `~_the-agent/clones/<name>-<hash>`. Every file the command created, changed or deleted, outside `.git`, then comes back as an agent edit through the buffers: saved, undone with one `u`, and with my unsaved changes set aside in a sidecar first. A deleted file is removed from disk and its buffer wiped. The clone is made with `cp -c -R` (`clonefile(2)` per file). It is diffed against its own listing from before the command, so files I save in the project meanwhile are left alone, and it is moved aside and deleted in the background afterwards. Symbolic links and binary files are reported, not applied. Since `_the-agent`'s home is mode 0700, every step that reads the clone runs as `_the-agent` through the same `sudo -n` rule, and setup is unchanged. Linux gets `bash_write` with the bubblewrap overlay (#19).
+
+### Package: `tool`
+
+- `BashWriteTool(sandbox Sandbox, cloner Cloner, replay Replay) Tool` - `bash_write`; its result is the command output plus `Applied to the project:` (`A`/`M`/`D` lines), `Not applied:` or `No files changed.`
+- `Cloner func(ctx) (Clone, error)`, `Clone` interface (`Command(ctx, script)`, `Changes(ctx)`, `Remove()`), `Change{Path, Content, Mode, Link, Deleted}` - the seam a cloner fills in per OS
+- `Replay{Write, Delete}` - how a change reaches the project, injected so `tool` stays free of Neovim
+- `Clonefile(project, clones string, run Runner) Cloner`, `ClonePath(project, clones string) string`, `Runner`, `MANIFEST_SCRIPT` - the macOS cloner; `run` is `Sandbox.Command` in production
+- `run_bash` takes the command builder instead of a directory, so both bash tools share it
+
+### Package: `vimtool`
+
+- `Replay(client) tool.Replay` - `Write` is the buffer-backed `write`; `Delete` removes the file and wipes its buffer, after a sidecar for unsaved changes
+
+### Lua plugin
+
+- `require("the-agent.buffer").delete(path, agent, stamp)` - sidecar for unsaved changes, `os.remove`, `nvim_buf_delete({force = true})`
+
+### Package: `cmd/agent`
+
+- `clone_for(sandbox)` picks the OS's cloner; `bash_write` is registered when there is one (macOS for now), and the seeded system prompt mentions it
+
+### Tests
+
+- `tool/bash_write_test.go` - with a runner that runs bash as me, so no sudo is involved: changed, new and deleted files are replayed, `.git` and same-content rewrites are ignored, the clone path is stable and the clone is removed, links and binaries are reported, an executable keeps its mode, and project changes made during the command survive; an unknown sandbox user fails at once with the setup command
+- `cmd/agent/main_test.go` - `bash_write` is among the tools on macOS
+- `integration/apply_shell_writes_as_edits_test.go` - through Neovim with the local runner: a change shows up in the open buffer, saved, and one `u` reverts it; new files are created and deleted ones removed with their buffer wiped; unsaved changes to a changed or a deleted file go to sidecars first
+- `integration/run_commands_as_the_agent_test.go` - `bash_write` as the real `_the-agent`: the edit is applied and undoable, and both calls run in the same clone; skips when setup is missing

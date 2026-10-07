@@ -47,6 +47,37 @@ On failure, it doesn't return an error — it returns the output with the exit c
 
 Its tests need a machine where setup has run on the repository; they skip with the setup command when `sudo -n -u _the-agent test -r <repo>` fails, except the one that checks an unknown user fails at once with the setup message.
 
+`run_bash(ctx, sandbox, start, arguments)` is the part `bash_read` and `bash_write` share: argument parsing, timeout, output, truncation, exit code and the setup error. `start(ctx, script)` builds the command, so `bash_read` runs it in the project and `bash_write` in the clone.
+
+## bash_write.go — BashWriteTool
+
+For commands that must write the project, like `go mod tidy` or `go generate`. Same arguments, output and exit-code handling as `bash_read`, but the command runs in a copy-on-write clone of the project, and whatever it changed there is then applied to the project as ordinary agent edits.
+
+`BashWriteTool(sandbox, cloner, replay)` takes three things, so `tool` stays free of Neovim and of any one way of cloning:
+
+- `Cloner func(ctx) (Clone, error)` makes a fresh clone. A `Clone` has `Command(ctx, script)` (the `*exec.Cmd` that runs a script inside the clone), `Changes(ctx)` (what the command changed, as `[]Change`) and `Remove()`. `Change{Path, Content, Mode, Link, Deleted}`: `Path` relative to the project, the new bytes and mode of a regular file, the target of a symbolic link, or a deletion. macOS uses `Clonefile` below; Linux will plug in a bubblewrap overlay the same way.
+- `Replay{Write, Delete}` applies one change to an absolute path. The `--nvim` binary passes `vimtool.Replay(client)`, the buffer-backed write and delete, so every replayed file is saved, undoable as one `u` and sidecar-protected (see `vimtool.md`).
+
+Each call takes a lock, so two `bash_write` calls never share the clone, makes the clone, runs the command through `run_bash`, then, unless the turn was stopped, asks for the changes and applies them in path order. Files whose content and permissions already match the project are skipped (a command that only touched a file changes nothing). A new or changed file goes through `Replay.Write`, and its permissions are then set with `os.Chmod` when they differ, so a generated script stays executable. A deleted file goes through `Replay.Delete` if it's still there. Symbolic links and binary files (any NUL byte) are not applied, because a buffer can't hold them faithfully; neither is a path outside the project. The model's result is the command output followed by `Applied to the project:` with one `A`, `M` or `D` line per file, and `Not applied:` with the reason for each skipped file, or `No files changed.` The clone is removed when the call returns, whatever happened.
+
+Failures to clone or read the changes are tool errors; when sudo refused, the error names `sudo the-agent setup <project>`, like `bash_read`'s.
+
+## clonefile.go — Clonefile
+
+The macOS `Cloner`. `Clonefile(project, clones, run)` clones the project to `ClonePath(project, clones)`, `<clones>/<project base name>-<first 12 hex digits of sha256(project path)>`: the same path every call, because Go mixes the absolute directory into its build-cache keys, and the hash keeps two projects with the same name apart. `cmd/agent` passes `~_the-agent/clones` and `sandbox.Command` as `run`.
+
+Every step runs as `_the-agent` through `run`, with the project as the working directory and a `cd` into the clone in the script. This is how the clone stays readable: `_the-agent`'s home is mode 0700, so my process can't read the clone, and setup isn't asked to change that. Instead `_the-agent` does all the reading and hands the results over on stdout. The clone also has to be made by `_the-agent`, because a clone belongs to whoever creates it, and only an owner can let the command write it. The steps are:
+
+1. Set aside any clone left at the path, by moving it into a fresh `<clones>/.removing.XXXXXX` and deleting that in the background (`clonefile(2)` needs a destination that doesn't exist, and a background delete of the path itself would race the next clone).
+2. `cp -c -R <project> <clone>`, which clones each file with `clonefile(2)` and keeps nanosecond mtimes, then list the clone (`MANIFEST_SCRIPT`: `find` without any `.git`, then `stat -f '%i %z %Fm %p %N'` for each file and link, giving inode, size, mtime, mode and path).
+3. Run the command (`Command`).
+4. List the clone again. A path only in the first listing is deleted. A path only in the second, or whose inode, size, mtime or mode changed, is new or changed, and those files come back in one `tar -c --no-mac-metadata --null -T -` stream that Go reads with `archive/tar`.
+5. `Remove` sets the clone aside as in step 1 and deletes it in the background.
+
+The diff compares the clone with itself, before and after the command, instead of with the project. A file I save, or create, in the project while the command runs is then neither reverted nor deleted by the replay. `.git` is never listed, so a command that rewrites the index or `HEAD` changes nothing. A file name containing a newline can't be listed this way, so `Changes` fails on it with an error.
+
+The steps are plain shell run through `run`, so the tests pass a runner that runs bash as me in a temporary directory and cover the whole flow, except sudo, on any Mac.
+
 ## edit.go — EditTool
 
 Find-and-replace. Takes `path`, `old_text`, and `new_text`. Reads the file, finds the exact `old_text`, replaces it with `new_text`, writes the file back.

@@ -63,11 +63,13 @@ func BashReadTool(sandbox Sandbox) Tool {
 
 	description := "Run a bash command in the project as the read-only user " + sandbox.User + ": tests, builds, git log, inspection. Writing the project fails with Permission denied; use bash_write for commands that must change files. TMPDIR and the Go caches are writable."
 	return NewTool("bash_read", description, parameters, func(invocation_context context.Context, _ string, arguments map[string]interface{}) (ToolResult, error) {
-		return run_bash(invocation_context, sandbox, sandbox.Project, arguments)
+		return run_bash(invocation_context, sandbox, func(command_context context.Context, script string) *exec.Cmd {
+			return sandbox.Command(command_context, sandbox.Project, script)
+		}, arguments)
 	})
 }
 
-func run_bash(invocation_context context.Context, sandbox Sandbox, directory string, arguments map[string]interface{}) (ToolResult, error) {
+func run_bash(invocation_context context.Context, sandbox Sandbox, start func(context.Context, string) *exec.Cmd, arguments map[string]interface{}) (ToolResult, error) {
 	script, ok := arguments["command"].(string)
 	if !ok {
 		return ToolResult{}, fmt.Errorf("command is required")
@@ -81,7 +83,7 @@ func run_bash(invocation_context context.Context, sandbox Sandbox, directory str
 	command_context, cancel := context.WithTimeout(invocation_context, timeout)
 	defer cancel()
 
-	command := sandbox.Command(command_context, directory, script)
+	command := start(command_context, script)
 
 	var stdout_buffer bytes.Buffer
 	var stderr_buffer bytes.Buffer
@@ -101,7 +103,7 @@ func run_bash(invocation_context context.Context, sandbox Sandbox, directory str
 
 	stderr_output := stderr_buffer.String()
 	if exit_code == 1 && stdout_buffer.Len() == 0 && sudo_refused(stderr_output) {
-		return ToolResult{}, fmt.Errorf("cannot run commands as %s (%s): run sudo the-agent setup %s", sandbox.User, strings.TrimSpace(stderr_output), sandbox.Project)
+		return ToolResult{}, setup_error(sandbox, stderr_output)
 	}
 
 	output := stdout_buffer.String()
@@ -120,6 +122,10 @@ func run_bash(invocation_context context.Context, sandbox Sandbox, directory str
 		Content: []message.Content{message.TextContent{Text: output}},
 		Details: map[string]interface{}{"exit_code": exit_code},
 	}, nil
+}
+
+func setup_error(sandbox Sandbox, stderr string) error {
+	return fmt.Errorf("cannot run commands as %s (%s): run sudo the-agent setup %s", sandbox.User, strings.TrimSpace(stderr), sandbox.Project)
 }
 
 func sudo_refused(stderr string) bool {

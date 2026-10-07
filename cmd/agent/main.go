@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	neovim "github.com/neovim/go-client/nvim"
@@ -19,7 +21,7 @@ import (
 	_ "github.com/niconiahi/the-agent/sender"
 )
 
-const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run shell commands with bash_read, which runs them as a user that can read the project but not write it. You can search for files and their contents. Help the user with their coding tasks.`
+const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run shell commands with bash_read, which runs them as a user that can read the project but not write it, and with bash_write, which runs a command that must change files in a copy of the project and applies its changes as edits. You can search for files and their contents. Help the user with their coding tasks.`
 
 const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
 
@@ -44,9 +46,10 @@ func main() {
 }
 
 func default_tools(client *neovim.Nvim, project string) []tool.Tool {
-	return []tool.Tool{
+	sandbox := tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: project}
+	tools := []tool.Tool{
 		vimtool.Read(client),
-		tool.BashReadTool(tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: project}),
+		tool.BashReadTool(sandbox),
 		vimtool.Edit(client),
 		vimtool.Write(client),
 		vimtool.Filter(client),
@@ -54,6 +57,18 @@ func default_tools(client *neovim.Nvim, project string) []tool.Tool {
 		tool.FindTool(),
 		tool.LsTool(),
 	}
+	if cloner := clone_for(sandbox); cloner != nil {
+		tools = append(tools, tool.BashWriteTool(sandbox, cloner, vimtool.Replay(client)))
+	}
+	return tools
+}
+
+func clone_for(sandbox tool.Sandbox) tool.Cloner {
+	switch runtime.GOOS {
+	case "darwin":
+		return tool.Clonefile(sandbox.Project, filepath.Join(sandbox.Home, "clones"), sandbox.Command)
+	}
+	return nil
 }
 
 func run_nvim() {

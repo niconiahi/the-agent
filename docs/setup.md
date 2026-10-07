@@ -32,7 +32,7 @@ Without root, anything but `--dry-run` and `--check` stops with `ERROR_NOT_ROOT`
 
 ## Used by the agent
 
-`Ready(project)` is the check on its own, run directly on this machine: `sudo -n -u _the-agent ls <project>`, with the same diagnosis (TCC, or "run sudo the-agent setup"). The `--nvim` binary sets it as `nvim.Config.Sandbox`, so `:TA` in a project that isn't set up shows that error and creates nothing. `Home()` is `~_the-agent` on this system; `cmd/agent` passes it, with `USER` and the project, as the `tool.Sandbox` that `bash_read` runs commands in.
+`Ready(project)` is the check on its own, run directly on this machine: `sudo -n -u _the-agent ls <project>`, with the same diagnosis (TCC, or "run sudo the-agent setup"). The `--nvim` binary sets it as `nvim.Config.Sandbox`, so `:TA` in a project that isn't set up shows that error and creates nothing. `Home()` is `~_the-agent` on this system; `cmd/agent` passes it, with `USER` and the project, as the `tool.Sandbox` that `bash_read` runs commands in. `bash_write` clones into `~_the-agent/clones`. Setup grants nothing extra for it: `~_the-agent` stays mode 0700, and everything that reads a clone runs as `_the-agent` through the same sudo rule (see `clonefile.go` in `tool.md`).
 
 ## Testing
 
