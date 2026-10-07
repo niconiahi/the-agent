@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	neovim "github.com/neovim/go-client/nvim"
@@ -23,7 +24,9 @@ import (
 
 const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run shell commands with bash_read, which runs them as a user that can read the project but not write it, and with bash_write, which runs a command that must change files in a copy of the project and applies its changes as edits. You can search for files and their contents. Help the user with their coding tasks.`
 
-const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
+const MAX_DEPTH_VARIABLE = "THE_AGENT_MAX_DEPTH"
+
+const USAGE =`the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
 
 Install the plugin (see extras/lazy.lua for a lazy.nvim spec), then use
 :TA <name> to open a session, :TASend to send it and :TAAbort to stop a turn.
@@ -74,6 +77,7 @@ func run_nvim() {
 	api_key := os.Getenv("KIMI_API_KEY")
 	project := working_directory()
 	binary := binary_path()
+	depth, depth_error := max_depth(os.Getenv(MAX_DEPTH_VARIABLE))
 	config := nvim.Config{
 		Project: project,
 		Sandbox: func(project string) error {
@@ -82,7 +86,11 @@ func run_nvim() {
 		Model:         &target,
 		SystemPrompt:  SYSTEM_PROMPT,
 		StreamOptions: &sender.StreamOptions{APIKey: api_key},
+		MaxDepth:      depth,
 		Ready: func() error {
+			if depth_error != nil {
+				return depth_error
+			}
 			if api_key == "" {
 				return errors.New("KIMI_API_KEY environment variable is required")
 			}
@@ -102,6 +110,18 @@ func run_nvim() {
 	if error := client.Serve(); error != nil {
 		log.Fatalf("the-agent: %v", error)
 	}
+}
+
+func max_depth(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	depth, error := strconv.Atoi(value)
+	if error != nil || depth < 1 {
+		return 0, fmt.Errorf("%s must be a positive whole number, got %q", MAX_DEPTH_VARIABLE, value)
+	}
+	return depth, nil
 }
 
 func binary_path() string {
