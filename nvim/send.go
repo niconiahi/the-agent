@@ -53,6 +53,10 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	if error != nil {
 		return error
 	}
+	if messages, error = session.LoadImages(messages, dir); error != nil {
+		return error
+	}
+	last = messages[len(messages)-1].(message.UserMessage)
 
 	size, error := current.count(client, prompt, messages)
 	if error != nil {

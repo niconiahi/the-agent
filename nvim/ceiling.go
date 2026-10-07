@@ -62,9 +62,14 @@ func (current *frontend) refresh(client *neovim.Nvim, buffer int) error {
 	if error != nil {
 		return error
 	}
-	// A missing system prompt is reported by :TASend; the count goes on.
+	// A missing system prompt or image is reported by :TASend; the count
+	// goes on without it.
 	prompt, _ := system_prompt(parsed, dir)
-	size, error := current.count(client, prompt, parsed.Messages())
+	messages := parsed.Messages()
+	if loaded, error := session.LoadImages(messages, dir); error == nil {
+		messages = loaded
+	}
+	size, error := current.count(client, prompt, messages)
 	if error != nil {
 		return error
 	}
