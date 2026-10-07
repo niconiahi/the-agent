@@ -45,7 +45,7 @@ func invoker() (*user.User, error) {
 type exec_shell struct{}
 
 func (exec_shell) Run(command Command) (string, error) {
-	process := exec.Command(command.Args[0], command.Args[1:]...)
+	process := exec.Command(command.Arguments[0], command.Arguments[1:]...)
 	if command.Input != "" {
 		process.Stdin = strings.NewReader(command.Input)
 	}

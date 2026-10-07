@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/niconiahi/the-agent/clone"
+	"github.com/niconiahi/the-agent/layout"
 	"github.com/niconiahi/the-agent/setup"
 )
 
@@ -77,7 +78,7 @@ func local_project(t *testing.T, files map[string]string) string {
 			t.Fatal(error)
 		}
 	}
-	if error := os.MkdirAll(clone.Path(project), 0o700); error != nil {
+	if error := os.MkdirAll(layout.Clone(project), 0o700); error != nil {
 		t.Fatal(error)
 	}
 	return project
@@ -174,10 +175,10 @@ func TestBashWrite_RunsInTheProjectsCloneAndKeepsItBetweenCalls(t *testing.T) {
 	first := strings.SplitN(run_bash_write(t, bash_write, "pwd -P"), "\n", 2)[0]
 	second := strings.SplitN(run_bash_write(t, bash_write, "pwd -P"), "\n", 2)[0]
 
-	if want := clone.Path(project); first != want || second != want {
+	if want := layout.Clone(project); first != want || second != want {
 		t.Fatalf("want both commands run in %s, got %q then %q", want, first, second)
 	}
-	if got := read_file(t, filepath.Join(clone.Path(project), "a.txt")); got != "a\n" {
+	if got := read_file(t, filepath.Join(layout.Clone(project), "a.txt")); got != "a\n" {
 		t.Fatalf("want the clone kept after the call, a.txt holds %q", got)
 	}
 }
@@ -279,5 +280,36 @@ func TestBashWrite_WithoutSetupFailsAtOnceWithTheSetupCommand(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("sudo -n must fail at once, took %v", elapsed)
+	}
+}
+
+func TestBashWrite_RemovesFoldersTheCommandRemoved(t *testing.T) {
+	project := local_project(t, map[string]string{"gen/a.go": "package gen\n", "gen/sub/b.go": "package sub\n", "kept.go": "package kept\n"})
+	if error := os.Mkdir(filepath.Join(project, "empty"), 0o755); error != nil {
+		t.Fatal(error)
+	}
+
+	text := run_bash_write(t, local_bash_write(t, project, &replayed{}), "rm -r gen && rmdir empty")
+
+	for _, name := range []string{"gen", "empty"} {
+		if _, error := os.Lstat(filepath.Join(project, name)); !os.IsNotExist(error) {
+			t.Fatalf("want %s removed from the project, got %v", name, error)
+		}
+	}
+	if want := "Applied to the project:\nD empty/\nD gen/\nD gen/a.go\nD gen/sub/\nD gen/sub/b.go"; !strings.HasSuffix(text, want) {
+		t.Fatalf("want %q, got %q", want, text)
+	}
+}
+
+func TestBashWrite_KeepsARemovedFolderThatStillHoldsMyFiles(t *testing.T) {
+	project := local_project(t, map[string]string{"gen/a.go": "package gen\n"})
+
+	text := run_bash_write(t, local_bash_write(t, project, &replayed{}), "rm -r gen && echo mine > "+filepath.Join(project, "gen", "mine.txt"))
+
+	if got := read_file(t, filepath.Join(project, "gen", "mine.txt")); got != "mine\n" {
+		t.Fatalf("gen/mine.txt: %q", got)
+	}
+	if want := "Applied to the project:\nD gen/a.go\n\nNot applied:\ngen/ (folder not empty)"; !strings.HasSuffix(text, want) {
+		t.Fatalf("want %q, got %q", want, text)
 	}
 }

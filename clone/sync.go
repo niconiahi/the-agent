@@ -7,9 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-)
 
-const FOLDER = ".the-agent"
+	"github.com/niconiahi/the-agent/layout"
+)
 
 type Report struct {
 	Copied  []string
@@ -17,29 +17,17 @@ type Report struct {
 	Removed []string
 }
 
-func Path(project string) string {
-	return filepath.Join(project, FOLDER, "clone")
-}
-
-// Run is the hidden "the-agent sync <project>" subcommand, which bash_write
-// runs as _the-agent. It writes nothing to stdout, which carries the clone's
-// listing that follows it.
 func Run(arguments []string) error {
 	if len(arguments) != 1 || !filepath.IsAbs(arguments[0]) {
 		return errors.New("usage: the-agent sync <absolute project path>")
 	}
 	project := filepath.Clean(arguments[0])
-	if _, error := Sync(project, Path(project)); error != nil {
-		return fmt.Errorf("failed to sync %s: %w", Path(project), error)
+	if _, error := Sync(project, layout.Clone(project)); error != nil {
+		return fmt.Errorf("failed to sync %s: %w", layout.Clone(project), error)
 	}
 	return nil
 }
 
-// Sync brings clone up to date with project, file by file. It skips the
-// project's .the-agent folder, keeps .git, copies only what differs in size,
-// nanosecond mtime or mode, and removes what the project no longer has. Each
-// step leaves a state the next sync can finish from, so an interrupted sync
-// is completed by the next one.
 func Sync(project string, clone string) (Report, error) {
 	report := Report{}
 	if error := restore_directory(clone); error != nil {
@@ -136,7 +124,7 @@ func entries(directory string, top bool) (map[string]fs.FileInfo, error) {
 	}
 	result := map[string]fs.FileInfo{}
 	for _, entry := range listed {
-		if top && entry.Name() == FOLDER {
+		if top && entry.Name() == layout.FOLDER {
 			continue
 		}
 		info, error := entry.Info()
@@ -174,9 +162,6 @@ func same_file(source fs.FileInfo, current fs.FileInfo) bool {
 	return permissions(current) == permissions(source) && current.Size() == source.Size() && current.ModTime().Equal(source.ModTime())
 }
 
-// restore_directory gives a clone folder back the bits the sync and I need:
-// the owner's rwx, so a command's chmod 0555 can't stop the next sync, and on
-// Linux the group bits, which are the ACL mask that caps my inherited entry.
 func restore_directory(directory string) error {
 	info, error := os.Lstat(directory)
 	if error != nil {

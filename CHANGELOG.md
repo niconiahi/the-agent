@@ -293,3 +293,40 @@ On Linux the inherited ACL covers what `_the-agent` creates natively; a copy (`c
 - `cmd/agent/main_test.go` - `bash_write` is among the tools on macOS and Linux
 - `integration/apply_shell_writes_as_edits_test.go` - no longer macOS-only; uses the built binary's `sync`
 - `integration/run_commands_as_the_agent_test.go` - `bash_write` as the real `_the-agent` on any Unix, run in `<project>/.the-agent/clone`; I can delete what the sync copied without sudo; skips when setup is missing
+
+### Sandbox review fixes
+
+`_the-agent` no longer owns its home. Setup gives `~_the-agent` to root, mode 0755, and gives `_the-agent` only `gocache` and `gomodcache` inside it, never recursively, so `_the-agent` writes only its two caches and the project's `.the-agent/clone` and `.the-agent/tmp`. Before, it owned the home and so could replace root's registry `~_the-agent/projects`, and `--uninstall --all` would then `rm -rf` and strip ACLs on whatever paths it listed. A home set up by an earlier version is taken back on the next setup: caches that aren't folders are removed and recreated, and a registry that is a link or isn't root's is rewritten by root. Setup, `--uninstall` and `--uninstall --all` also refuse a project whose folder, `.the-agent`, `clone` or `tmp` is a symbolic link or isn't a folder, before changing anything. The sudoers step now checks that `/etc/sudoers.d/the-agent` holds my line, not just that it exists, and adds it to the lines already there (still through the draft, `visudo -cf` and `mv`).
+
+`bash_write` now removes from the project the folders the command removed in the clone, once the deleted files are gone, and reports them as `D <folder>/`; a folder that still holds something of mine is kept and reported as not applied.
+
+### Package: `layout`
+
+- new, imports nothing: `FOLDER`, `CLONE`, `TMP`, `SESSIONS`, `SYSTEM_PROMPT`, `GITIGNORE`, `GO_CACHE`, `GO_MODULE_CACHE`, `OWNED`, `CACHES`; `Folder(project)`, `Clone(project)`, `Tmp(project)` - the one source of the `.the-agent` layout and the cache names
+
+### Package: `setup`
+
+- `Command.Args` is now `Command.Arguments`
+- `Quote(word string) string` - the shell quoting `Command.String()` uses, exported for `tool`
+- `SUDO_REFUSALS`, `Refused(output string) bool` - sudo refusing to run a command, shared with `tool`
+- `Supported(system string) bool` - whether setup knows the system
+- removed: `CACHES`, `FOLDER`, `OWNED` (now in `layout`)
+
+### Package: `clone`
+
+- removed: `Path` and `FOLDER` (now `layout.Clone` and `layout.FOLDER`)
+
+### Package: `tool`
+
+- `Change.Folder` - a folder the command removed
+- `FOLDERS_SCRIPT` - lists the clone's folders after `MANIFEST_SCRIPT`
+- removed: `Clone.Path()`, `SUDO_REFUSALS` (now `setup.SUDO_REFUSALS`)
+
+### Package: `cmd/agent`
+
+- `bash_write` is registered where `setup.Supported(runtime.GOOS)`
+
+### Tests
+
+- `setup/setup_test.go` - the dry runs give the home to root and only the caches to `_the-agent`; a home `_the-agent` owned, with a linked cache and a linked registry, is taken back; `--uninstall` refuses a linked `.the-agent` and `--uninstall --all` a clone that isn't a folder, running nothing that changes the machine; a sudoers file without my line gets it added to the existing one; an unreadable sudoers file counts as present in a dry run without root
+- `tool/bash_write_test.go` - folders the command removed, nested or empty, are removed from the project; one still holding my file is kept and reported

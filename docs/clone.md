@@ -1,10 +1,10 @@
 # clone — `the-agent sync`
 
-`bash_write` runs its command in `<project>/.the-agent/clone`, a copy of the project that `_the-agent` owns (setup creates the folder, see `setup.md`). This package keeps that copy up to date. It is the hidden `the-agent sync <project>` subcommand, which `bash_write` runs as `_the-agent` through the same `sudo -n -u _the-agent` path as every other command, right before listing the clone (see `clone.go` in `tool.md`). It imports nothing internal.
+`bash_write` runs its command in `<project>/.the-agent/clone`, a copy of the project that `_the-agent` owns (setup creates the folder, see `setup.md`). This package keeps that copy up to date. It is the hidden `the-agent sync <project>` subcommand, which `bash_write` runs as `_the-agent` through the same `sudo -n -u _the-agent` path as every other command, right before listing the clone (see `clone.go` in `tool.md`). It imports only `layout`.
 
 ## sync.go
 
-`Path(project)` is `<project>/.the-agent/clone`. `Run(arguments)` is the subcommand: it takes one absolute project path, syncs `Path(project)` and writes nothing to stdout, because stdout carries the listing that `bash_write` runs after it in the same call. `cmd/agent` calls it for `the-agent sync`, and `tool`'s tests call it from their `TestMain`, so the test binary can stand in for the-agent.
+`Run(arguments)` is the subcommand: it takes one absolute project path, syncs `layout.Clone(project)` (`<project>/.the-agent/clone`) and writes nothing to stdout, because stdout carries the listing that `bash_write` runs after it in the same call. `cmd/agent` calls it for `the-agent sync`, and `tool`'s tests call it from their `TestMain`, so the test binary can stand in for the-agent.
 
 `Sync(project, clone) (Report, error)` walks the project folder by folder, comparing each folder's entries with the clone's:
 

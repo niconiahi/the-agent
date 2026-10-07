@@ -60,7 +60,7 @@ func default_tools(client *neovim.Nvim, project string, binary string) []tool.To
 		tool.FindTool(),
 		tool.LsTool(),
 	}
-	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+	if setup.Supported(runtime.GOOS) {
 		clone := tool.Clone{Project: project, Binary: binary, Run: sandbox.Command}
 		tools = append(tools, tool.BashWriteTool(sandbox, clone, vimtool.Replay(client)))
 	}

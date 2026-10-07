@@ -18,8 +18,10 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
                       │            ↑
                   cmd/agent ───────┘
                       │
-                      └──→ setup, clone
+                      └──→ setup, clone ──→ layout
 ```
+
+`tool` and `nvim` also import `layout`, and `tool` imports `setup`.
 
 **message** and **model** are the two roots. They don't import anything internal. They don't know about each other. `message` defines the data that flows through the system — what a user said, what the assistant replied, what a tool returned. `model` defines the LLM being targeted — its endpoint, its limits, its pricing.
 
@@ -33,9 +35,11 @@ The core came from taking pi-mono's architecture (which had two monolithic packa
 
 **vimtool** holds the tools that need the editor. They wrap or replace `tool` tools and take the Neovim client; `cmd/agent` builds them once the client exists. `read`, `edit`, `write` and `filter` go through the buffer API (in `lua/the-agent/buffer.lua`), so an agent change is one undo block, saved at once and visible to the LSP, and my unsaved changes are set aside in a session sidecar before any agent change touches the buffer. `vimtool.Grep` runs the plain grep and fills the quickfix list with its hits. `nvim` imports it only to put the session directory and clock on the turn's context. It never imports `nvim`.
 
-**setup** is `the-agent setup`, the one-time, root-run preparation that lets shell commands run as the unprivileged `_the-agent` user: the user, its sudoers entry, its caches, and read ACLs on each project. It imports nothing internal and talks to the machine only through a `Shell` that runs commands, which is what `--dry-run` prints and what its tests fake. See `setup.md`.
+**setup** is `the-agent setup`, the one-time, root-run preparation that lets shell commands run as the unprivileged `_the-agent` user: the user, its sudoers entry, its caches, and read ACLs on each project. It imports only `layout` and talks to the machine only through a `Shell` that runs commands, which is what `--dry-run` prints and what its tests fake. See `setup.md`.
 
-**clone** is the hidden `the-agent sync <project>`, which `bash_write` runs as `_the-agent` to bring the project's `.the-agent/clone` up to date, file by file and copy-on-write where the filesystem allows. It imports nothing internal; `tool` only knows the binary runs it. See `clone.md`.
+**clone** is the hidden `the-agent sync <project>`, which `bash_write` runs as `_the-agent` to bring the project's `.the-agent/clone` up to date, file by file and copy-on-write where the filesystem allows. It imports only `layout`; `tool` only knows the binary runs it. See `clone.md`.
+
+**layout** is the one place that names the project's `.the-agent` folder and what is in it (`clone`, `tmp`, `sessions`, `system_prompt.md`, `.gitignore`) and `_the-agent`'s cache folders (`gocache`, `gomodcache`), with `Folder`, `Clone` and `Tmp` to build the paths. It imports nothing, so `setup`, `clone`, `tool` and `nvim` all use it without `tool` depending on Neovim.
 
 Nothing points backwards. No circular dependencies. You can compile bottom-up: message and model first, then sender, tool and session, then orchestrator, then nvim.
 

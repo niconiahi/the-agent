@@ -129,10 +129,13 @@ const DARWIN_FIRST_PROJECT = `• user _the-agent (dry run)
     chmod 0440 /etc/sudoers.d/the-agent.tmp
     visudo -cf /etc/sudoers.d/the-agent.tmp
     mv /etc/sudoers.d/the-agent.tmp /etc/sudoers.d/the-agent
-• caches /var/the-agent/{gocache,gomodcache} (dry run)
+• home /var/the-agent owned by root, caches {gocache,gomodcache} owned by _the-agent (dry run)
+    mkdir -p /var/the-agent
+    chown 0:0 /var/the-agent
+    chmod 0755 /var/the-agent
     mkdir -p /var/the-agent/gocache /var/the-agent/gomodcache
-    chown -R _the-agent:_the-agent /var/the-agent
-    chmod 0700 /var/the-agent
+    chown _the-agent:_the-agent /var/the-agent/gocache /var/the-agent/gomodcache
+    chmod 0700 /var/the-agent/gocache /var/the-agent/gomodcache
 • ACL read on HOME/Documents/repos/app (inherit) (dry run)
     chmod -R +a '_the-agent allow read,execute,readattr,readextattr,readsecurity,file_inherit,directory_inherit' HOME/Documents/repos/app
     tee -a /var/the-agent/projects <<< HOME/Documents/repos/app
@@ -173,10 +176,13 @@ func TestDryRun_FirstProjectPrintsEveryCommand(t *testing.T) {
 func darwin_later_project(t *testing.T) *machine {
 	current := darwin_first_project(t)
 	current.respond("id -u _the-agent", "401\n")
+	current.respond("cat /etc/sudoers.d/the-agent", "nico ALL=(_the-agent) NOPASSWD: ALL\n")
 	current.respond("test -f /etc/sudoers.d/the-agent", "")
+	current.respond("ls -ld /var/the-agent", "drwxr-xr-x  4 root  wheel  128 Oct  7 10:00 /var/the-agent\n")
 	for _, name := range []string{"gocache", "gomodcache"} {
-		current.respond("test -d /var/the-agent/"+name, "")
+		current.respond("ls -ld /var/the-agent/"+name, "drwx------  4 _the-agent  _the-agent  128 Oct  7 10:00 /var/the-agent/"+name+"\n")
 	}
+	current.respond("ls -ld /var/the-agent/projects", "-rw-r--r--  1 root  wheel  20 Oct  7 10:00 /var/the-agent/projects\n")
 	current.respond("cat /var/the-agent/projects", "/Users/nico/other\n")
 	for _, directory := range []string{"HOME", "HOME/Documents"} {
 		current.respond("ls -lde "+directory, "drwxr-xr-x+ 3 nico staff 96 "+directory+"\n 0: user:_the-agent allow search\n")
@@ -195,7 +201,7 @@ func TestDryRun_LaterProjectPrintsOnlyTheProjectCommands(t *testing.T) {
 
 	current.want_output(t, `✓ user _the-agent (exists)
 ✓ /etc/sudoers.d/the-agent (exists)
-✓ caches /var/the-agent/{gocache,gomodcache} (exists)
+✓ home /var/the-agent owned by root, caches {gocache,gomodcache} owned by _the-agent (exists)
 • ACL read on HOME/Documents/repos/app (inherit) (dry run)
     chmod -R +a '_the-agent allow read,execute,readattr,readextattr,readsecurity,file_inherit,directory_inherit' HOME/Documents/repos/app
     tee -a /var/the-agent/projects <<< HOME/Documents/repos/app
@@ -241,10 +247,13 @@ func TestDryRun_FirstProjectOnLinux(t *testing.T) {
     chmod 0440 /etc/sudoers.d/the-agent.tmp
     visudo -cf /etc/sudoers.d/the-agent.tmp
     mv /etc/sudoers.d/the-agent.tmp /etc/sudoers.d/the-agent
-• caches /var/lib/the-agent/{gocache,gomodcache} (dry run)
+• home /var/lib/the-agent owned by root, caches {gocache,gomodcache} owned by _the-agent (dry run)
+    mkdir -p /var/lib/the-agent
+    chown 0:0 /var/lib/the-agent
+    chmod 0755 /var/lib/the-agent
     mkdir -p /var/lib/the-agent/gocache /var/lib/the-agent/gomodcache
-    chown -R _the-agent:_the-agent /var/lib/the-agent
-    chmod 0700 /var/lib/the-agent
+    chown _the-agent:_the-agent /var/lib/the-agent/gocache /var/lib/the-agent/gomodcache
+    chmod 0700 /var/lib/the-agent/gocache /var/lib/the-agent/gomodcache
 • ACL read on HOME/Documents/repos/app (inherit) (dry run)
     setfacl -R -m u:_the-agent:rX HOME/Documents/repos/app
     find HOME/Documents/repos/app -type d -exec setfacl -m d:u:_the-agent:rX '{}' +
@@ -305,6 +314,7 @@ func darwin_set_up_project(t *testing.T) *machine {
 		directory := "HOME/Documents/repos/app/.the-agent/" + name
 		current.respond("ls -lde "+directory, "drwx------+ 2 _the-agent _the-agent 64 "+name+"\n 0: user:nico allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,writesecurity,chown,file_inherit,directory_inherit\n")
 		current.respond("test -e "+directory, "")
+		current.respond("test -d "+directory, "")
 		current.respond("sudo -n -u _the-agent test -w "+directory, "")
 	}
 	current.respond("sudo -n -u _the-agent ls HOME/Documents/repos/app", "go.mod\n")
@@ -328,7 +338,7 @@ func TestSetup_OnASetUpProjectReportsExistsAndChangesNothing(t *testing.T) {
 
 	current.want_output(t, `✓ user _the-agent (exists)
 ✓ /etc/sudoers.d/the-agent (exists)
-✓ caches /var/the-agent/{gocache,gomodcache} (exists)
+✓ home /var/the-agent owned by root, caches {gocache,gomodcache} owned by _the-agent (exists)
 ✓ ACL read on HOME/Documents/repos/app (inherit) (exists)
 ✓ HOME/Documents/repos/app/.the-agent/{clone,tmp} owned by _the-agent, full control for nico (exists)
 ✓ search on HOME, HOME/Documents, HOME/Documents/repos (exists)
@@ -521,5 +531,100 @@ func TestCheck_WhenTheAgentCannotWriteTheCloneNamesSetup(t *testing.T) {
 
 	if error == nil || error.Error() != current.expand("_the-agent cannot write HOME/Documents/repos/app/.the-agent/clone: run sudo the-agent setup HOME/Documents/repos/app") {
 		t.Fatalf("got %v", error)
+	}
+}
+
+func TestSetup_TakesBackAHomeThatTheAgentOwned(t *testing.T) {
+	current := darwin_set_up_project(t)
+	current.respond("ls -ld /var/the-agent", "drwx------  4 _the-agent  _the-agent  128 Oct  7 10:00 /var/the-agent\n")
+	current.respond("ls -ld /var/the-agent/projects", "lrwxr-xr-x  1 _the-agent  _the-agent  10 Oct  7 10:00 /var/the-agent/projects -> /tmp/fake\n")
+	current.respond("ls -ld /var/the-agent/gocache", "lrwxr-xr-x  1 _the-agent  _the-agent  10 Oct  7 10:00 /var/the-agent/gocache -> /etc\n")
+
+	if error := current.run(t, "--dry-run"); error != nil {
+		t.Fatal(error)
+	}
+
+	want := `• home /var/the-agent owned by root, caches {gocache,gomodcache} owned by _the-agent (dry run)
+    mkdir -p /var/the-agent
+    chown 0:0 /var/the-agent
+    chmod 0755 /var/the-agent
+    rm -f /var/the-agent/gocache
+    rm -f /var/the-agent/projects
+    tee /var/the-agent/projects <<< 'HOME/Documents/repos/app
+HOME/Documents/repos/site'
+    mkdir -p /var/the-agent/gocache /var/the-agent/gomodcache
+    chown _the-agent:_the-agent /var/the-agent/gocache /var/the-agent/gomodcache
+    chmod 0700 /var/the-agent/gocache /var/the-agent/gomodcache
+`
+	if got := current.output.String(); !strings.Contains(got, current.expand(want)) {
+		t.Fatalf("output:\n%s\nwant it to contain:\n%s", got, current.expand(want))
+	}
+}
+
+func TestUninstall_RefusesATheAgentFolderThatIsASymbolicLink(t *testing.T) {
+	current := darwin_set_up_project(t)
+	current.respond("test -L HOME/Documents/repos/app/.the-agent", "")
+
+	error := current.run(t, "--uninstall")
+
+	if error == nil || error.Error() != current.expand("refusing HOME/Documents/repos/app: HOME/Documents/repos/app/.the-agent is a symbolic link") {
+		t.Fatalf("got %v", error)
+	}
+	for _, line := range current.shell.ran {
+		if strings.HasPrefix(line, "rm ") || strings.HasPrefix(line, "chmod ") || strings.HasPrefix(line, "tee ") {
+			t.Errorf("a refused uninstall ran %q", line)
+		}
+	}
+}
+
+func TestUninstallAll_RefusesARegisteredProjectWhoseCloneIsNotAFolder(t *testing.T) {
+	current := darwin_set_up_project(t)
+	current.respond("cat /var/the-agent/projects", "HOME/Documents/repos/app\n")
+	current.fail("test -d HOME/Documents/repos/app/.the-agent/clone", "")
+
+	error := current.run(t, "--uninstall", "--all")
+
+	if error == nil || error.Error() != current.expand("refusing HOME/Documents/repos/app: HOME/Documents/repos/app/.the-agent/clone is not a folder") {
+		t.Fatalf("got %v", error)
+	}
+	for _, line := range current.shell.ran {
+		if strings.HasPrefix(line, "rm ") || strings.HasPrefix(line, "chmod ") || strings.HasPrefix(line, "dscl ") {
+			t.Errorf("a refused uninstall ran %q", line)
+		}
+	}
+}
+
+func TestSetup_AddsMyLineToASudoersFileThatLacksIt(t *testing.T) {
+	current := darwin_set_up_project(t)
+	current.respond("cat /etc/sudoers.d/the-agent", "ana ALL=(_the-agent) NOPASSWD: ALL\n")
+
+	if error := current.run(t, "--dry-run"); error != nil {
+		t.Fatal(error)
+	}
+
+	want := `• /etc/sudoers.d/the-agent (dry run)
+    tee /etc/sudoers.d/the-agent.tmp <<< 'ana ALL=(_the-agent) NOPASSWD: ALL
+nico ALL=(_the-agent) NOPASSWD: ALL'
+    chmod 0440 /etc/sudoers.d/the-agent.tmp
+    visudo -cf /etc/sudoers.d/the-agent.tmp
+    mv /etc/sudoers.d/the-agent.tmp /etc/sudoers.d/the-agent
+`
+	if got := current.output.String(); !strings.Contains(got, want) {
+		t.Fatalf("output:\n%s\nwant it to contain:\n%s", got, want)
+	}
+}
+
+func TestDryRun_WithoutRootTrustsAnUnreadableSudoersFile(t *testing.T) {
+	current := darwin_set_up_project(t)
+	current.host.Root = false
+	current.fail("cat /etc/sudoers.d/the-agent", "cat: /etc/sudoers.d/the-agent: Permission denied")
+	current.respond("test -f /etc/sudoers.d/the-agent", "")
+
+	if error := current.run(t, "--dry-run"); error != nil {
+		t.Fatal(error)
+	}
+
+	if got := current.output.String(); !strings.Contains(got, "✓ /etc/sudoers.d/the-agent (exists)") {
+		t.Fatalf("output:\n%s", got)
 	}
 }

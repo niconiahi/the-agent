@@ -10,6 +10,7 @@ import (
 
 	neovim "github.com/neovim/go-client/nvim"
 
+	"github.com/niconiahi/the-agent/layout"
 	"github.com/niconiahi/the-agent/model"
 	"github.com/niconiahi/the-agent/sender"
 	"github.com/niconiahi/the-agent/session"
@@ -48,10 +49,10 @@ project's AGENTS.md here, or the parts of it the agent should follow.
 List the skills the agent may use here, one per line with what each is for.
 `
 
-const GITIGNORE = "/clone/\n/tmp/\n"
+const GITIGNORE = "/" + layout.CLONE + "/\n/" + layout.TMP + "/\n"
 
 func SystemPromptPath(project string) string {
-	return filepath.Join(project, ".the-agent", "system_prompt.md")
+	return filepath.Join(layout.Folder(project), layout.SYSTEM_PROMPT)
 }
 
 type frontend struct {
@@ -82,7 +83,7 @@ func Attach(client *neovim.Nvim, config Config) error {
 }
 
 func SessionPath(project string, name string) string {
-	return filepath.Join(project, ".the-agent", "sessions", strings.ReplaceAll(name, "/", "-"), "session.md")
+	return filepath.Join(layout.Folder(project), layout.SESSIONS, strings.ReplaceAll(name, "/", "-"), "session.md")
 }
 
 func (current *frontend) open(client *neovim.Nvim, name string) error {
@@ -137,7 +138,7 @@ func (current *frontend) seed_system_prompt(project string) error {
 }
 
 func seed_gitignore(project string) error {
-	path := filepath.Join(project, ".the-agent", ".gitignore")
+	path := filepath.Join(layout.Folder(project), layout.GITIGNORE)
 	if _, error := os.Stat(path); !errors.Is(error, os.ErrNotExist) {
 		return error
 	}
