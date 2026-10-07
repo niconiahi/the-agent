@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/niconiahi/the-agent/nvim/nvimtest"
 	"github.com/niconiahi/the-agent/setup"
 	"github.com/niconiahi/the-agent/tool"
+	"github.com/niconiahi/the-agent/vimtool"
 )
 
 func sandbox_project(t *testing.T) string {
@@ -48,8 +50,10 @@ func start_in_sandbox(t *testing.T, project string, calls ...message.ToolCall) (
 	}
 	replies = append(replies, nvimtest.Text("done", 10))
 	provider := nvimtest.RegisterProvider(t, replies...)
-	harness := nvimtest.StartWithTools(t, config, func(*neovim.Nvim) []tool.Tool {
-		return []tool.Tool{tool.BashReadTool(tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: project})}
+	harness := nvimtest.StartWithTools(t, config, func(client *neovim.Nvim) []tool.Tool {
+		sandbox := tool.Sandbox{User: setup.USER, Home: setup.Home(), Project: project}
+		cloner := tool.Clonefile(project, filepath.Join(sandbox.Home, "clones"), sandbox.Command)
+		return []tool.Tool{tool.BashReadTool(sandbox), tool.BashWriteTool(sandbox, cloner, vimtool.Replay(client))}
 	})
 	return harness, provider
 }
@@ -122,5 +126,43 @@ func TestBashRead_RunsGoTestWithTheAgentsCaches(t *testing.T) {
 		if want := filepath.Join(setup.Home(), cache) + "\n"; !strings.Contains(text, want) {
 			t.Fatalf("want go to use %s, got %q", want, text)
 		}
+	}
+}
+
+func TestBashWrite_AppliesWhatTheAgentWroteInItsCloneAsAnUndoableEdit(t *testing.T) {
+	project := sandbox_project(t)
+	if runtime.GOOS != "darwin" {
+		t.Skip("bash_write clones with clonefile on macOS only")
+	}
+	if error := os.WriteFile(filepath.Join(project, "kept.txt"), []byte("one\n"), 0o644); error != nil {
+		t.Fatal(error)
+	}
+	harness, provider := start_in_sandbox(t, project,
+		call("tc_1", "bash_write", map[string]any{"command": "echo two >> kept.txt && pwd -P"}),
+		call("tc_2", "bash_write", map[string]any{"command": "pwd -P"}),
+	)
+	path := filepath.Join(project, "kept.txt")
+	harness.Command("edit " + path)
+
+	send_agent_turn(harness)
+
+	results := tool_results(t, provider)
+	first, second := result_text(results[0]), result_text(results[1])
+	if results[0].IsError || !strings.HasSuffix(first, "Applied to the project:\nM kept.txt") {
+		t.Fatalf("bash_write result: %q", first)
+	}
+	clone := filepath.Base(tool.ClonePath(project, filepath.Join(setup.Home(), "clones")))
+	if !strings.Contains(first, clone+"\n") || strings.SplitN(first, "\n", 2)[0] != strings.SplitN(second, "\n", 2)[0] {
+		t.Fatalf("want both commands run in the clone %s, got %q and %q", clone, first, second)
+	}
+	if got := buffer_lines(harness, path); got != "one\ntwo\n" {
+		t.Fatalf("buffer: %q", got)
+	}
+	if got := harness.ReadFile("kept.txt"); got != "one\ntwo\n" {
+		t.Fatalf("disk: %q", got)
+	}
+	undo(harness, path)
+	if got := buffer_lines(harness, path); got != "one\n" {
+		t.Fatalf("after one undo: %q", got)
 	}
 }

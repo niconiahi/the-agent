@@ -196,6 +196,13 @@ local function set_aside(buffer, path, agent, stamp)
   return sidecar
 end
 
+local function tell_set_aside(path, sidecar)
+  require("the-agent").notify(
+    "your unsaved changes to " .. vim.fn.fnamemodify(path, ":.") .. " were saved to " .. sidecar,
+    vim.log.levels.WARN
+  )
+end
+
 -- Gets the buffer for path ready for an agent change: the loaded buffer or
 -- a newly loaded one, holding what is on disk. Unsaved changes of the user
 -- go to a sidecar under the agent's session first, and the user is told
@@ -221,10 +228,7 @@ local function prepare(path, agent, stamp)
     vim.cmd("silent edit!")
     vim.cmd("let &l:undolevels = &l:undolevels")
   end)
-  require("the-agent").notify(
-    "your unsaved changes to " .. vim.fn.fnamemodify(path, ":.") .. " were saved to " .. sidecar,
-    vim.log.levels.WARN
-  )
+  tell_set_aside(path, sidecar)
   return buffer
 end
 
@@ -303,6 +307,31 @@ function M.write(path, text, agent, stamp)
   end
   vim.bo[buffer].eol = ends
   return finish(buffer, agent, 0, 0, #lines - 1, #lines[#lines])
+end
+
+-- Removes the file from disk and wipes its buffer. Undo cannot bring a
+-- deleted file back, so unsaved changes of the user go to a sidecar first.
+function M.delete(path, agent, stamp)
+  path = resolve(path)
+  local buffer = find(path)
+  if buffer and vim.bo[buffer].modified then
+    if agent == nil or agent == "" then
+      return { error = "the file has unsaved changes in the editor" }
+    end
+    local sidecar, failure = set_aside(buffer, path, agent, stamp)
+    if not sidecar then
+      return { error = failure }
+    end
+    tell_set_aside(path, sidecar)
+  end
+  local removed, message = os.remove(path)
+  if not removed and vim.uv.fs_lstat(path) then
+    return { error = "failed to delete " .. path .. ": " .. message }
+  end
+  if buffer then
+    vim.api.nvim_buf_delete(buffer, { force = true })
+  end
+  return {}
 end
 
 -- Runs command over the whole buffer like :%!command. A command that fails
