@@ -2,7 +2,17 @@
 
 The `task` tool, through which an agent delegates a job to a fresh agent. The child runs in its own `session.md`, in a numbered subfolder of its parent's session, and only its final answer comes back as the tool result. The package sits above `orchestrator` because `tool` can't import `orchestrator` without a cycle, and it reaches the editor only through a `Host`, which `nvim` implements.
 
-`Task(Config)` builds the tool. Its arguments are `job`, what the child should do and report back, and an optional `role`; the only role so far is `explorer`, which gets only the reading tools (`read`, `grep`, `find`, `ls`, `bash_read`), picked from `Config.Tools` in their order. `Config.ExplorerTools` replaces that list; the frontend passes `nvim.Config.ExplorerTools` through, which only tests set (to let an explorer edit, so the follow window has a subagent edit to follow). The tool runs only inside a session, which it finds with `vimtool.SessionDirectory`.
+`Task(Config)` builds the tool. Its arguments are `job`, what the child should do and report back, and an optional `role`, which fixes the child's tools, picked from `Config.Tools` in their order. An `explorer`, the default, gets only the reading tools (`read`, `grep`, `find`, `ls`, `bash_read`); a `worker` also gets `edit`, `write`, `filter` and `bash_write`. `Config.ExplorerTools` replaces the explorer's list, and a worker's list is built on top of it; the frontend passes `nvim.Config.ExplorerTools` through, which only tests set (to let an explorer edit, so the follow window has a subagent edit to follow). The tool runs only inside a session, which it finds with `vimtool.SessionDirectory`.
+
+## Depth and parallel tasks
+
+An agent's depth is how deep its session is nested, which `Depth(directory)` counts as the ancestor folders that hold a `session.md`: 0 for a root session, 1 for its children. Every agent below `Config.MaxDepth` (`DEFAULT_MAX_DEPTH`, 3, when unset; the frontend passes `nvim.Config.MaxDepth`) gets `task` on top of its tools, so children can delegate too, and an agent at the limit gets no `task` at all. Children run their tool calls in parallel, as root sessions do, so several `task` calls in one turn run their children at the same time and the reports come back in call order.
+
+## Continuing a child
+
+`:TASend` in a child's `session.md` sends it like any session. `Config.ToolsFor(directory)` gives that send the right tools: every tool for a root session, and for a child the tools of the role its parent's `task` call gave it, which it reads back from the parent's `session.md` with `session.LinkedCall` (the call whose result follows the child's link). A child whose call is gone from the parent continues as an explorer, the safer default.
+
+When the continued turn ends without error or abort, the frontend takes the child's new final answer with `Report` and puts it into the direct parent's result with `session.Amend`, which replaces the `tool_result` right after the child's link with one marked `amended=<ts>`. It edits the parent's buffer and saves it when it is loaded, and the file on disk otherwise. If that result was deleted, there is nothing to replace and the parent stays as it is; a parent that is running is not amended, and the user is told.
 
 ## The child's session
 

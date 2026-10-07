@@ -10,6 +10,7 @@ import (
 
 	"github.com/niconiahi/the-agent/message"
 	"github.com/niconiahi/the-agent/orchestrator"
+	"github.com/niconiahi/the-agent/subagent"
 	"github.com/niconiahi/the-agent/vimtool"
 )
 
@@ -58,13 +59,18 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	go func() {
 		defer current.finish(buffer)
 		writer := current.start_writer(client, output, prepared.directory)
-		error := current.run(running.context, client, prepared, writer.handle)
-		if running.context.Err() != nil {
+		report, error := current.run(running.context, client, prepared, writer.handle)
+		aborted := running.context.Err() != nil
+		if aborted {
 			error = nil
 		}
+		succeeded := error == nil && !aborted
 		error = errors.Join(error, writer.finish())
 		if repair_error := repair_buffer(client, handle, stamped, repaired); repair_error != nil {
 			error = errors.Join(error, repair_error)
+		}
+		if succeeded {
+			error = errors.Join(error, current.amend(client, prepared.directory, report))
 		}
 		if error != nil {
 			notify(client, error.Error(), LOG_LEVEL_ERROR)
@@ -99,13 +105,13 @@ func (writer *session_writer) finish() error {
 	return errors.Join(failure, writer.replies.output.finish())
 }
 
-func (current *frontend) run(invocation_context context.Context, client *neovim.Nvim, prepared *request, listener func(orchestrator.AgentEvent)) error {
+func (current *frontend) run(invocation_context context.Context, client *neovim.Nvim, prepared *request, listener func(orchestrator.AgentEvent)) (string, error) {
 	history := prepared.history()
 	last, _ := prepared.last()
 	agent := orchestrator.New(
 		orchestrator.WithID(prepared.directory),
 		orchestrator.WithModel(current.config.Model),
-		orchestrator.WithTools(current.tools(client)),
+		orchestrator.WithTools(current.tools(client, prepared.directory)),
 		orchestrator.WithSystemPrompt(prepared.prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
 		orchestrator.WithToolExecution(orchestrator.TOOL_EXECUTION_PARALLEL),
@@ -116,7 +122,10 @@ func (current *frontend) run(invocation_context context.Context, client *neovim.
 
 	defer current.routes.add(agent.ID(), listener)()
 	agent.Subscribe(current.routes.route)
-	return agent.Prompt(vimtool.WithSession(invocation_context, prepared.directory, current.config.Now), last)
+	if error := agent.Prompt(vimtool.WithSession(invocation_context, prepared.directory, current.config.Now), last); error != nil {
+		return "", error
+	}
+	return subagent.Report(agent.State().Messages), nil
 }
 
 func buffer_text(client *neovim.Nvim, buffer neovim.Buffer) (string, error) {

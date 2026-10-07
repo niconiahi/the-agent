@@ -105,6 +105,27 @@ func (config Config) tools(role string, depth int) []tool.Tool {
 	return tools
 }
 
+// ToolsFor is the tool set of the agent whose session is directory, for
+// sending it again: a root session gets every tool, and a subagent the
+// tools of the role its parent's task call gave it, read back from the
+// parent's session.md. A subagent whose call is gone from there continues
+// as an explorer.
+func (config Config) ToolsFor(directory string) []tool.Tool {
+	depth := Depth(directory)
+	if depth == 0 {
+		return config.tools("", depth)
+	}
+	role := ROLE_EXPLORER
+	contents, error := os.ReadFile(filepath.Join(filepath.Dir(directory), "session.md"))
+	if error == nil {
+		link := Link{Folder: filepath.Base(directory)}.String()
+		if call, ok := session.LinkedCall(string(contents), link); ok && call.Arguments["role"] == ROLE_WORKER {
+			role = ROLE_WORKER
+		}
+	}
+	return config.tools(role, depth)
+}
+
 // Depth is how many sessions directory is nested in: 0 for a root session,
 // 1 for its subagents, and so on, since a session is nested in every
 // ancestor folder that holds a session.md.
@@ -170,7 +191,7 @@ func (config Config) run(invocation_context context.Context, arguments map[strin
 		return tool.ToolResult{Details: link}, fmt.Errorf("subagent %s: %w", link.Folder, error)
 	}
 	return tool.ToolResult{
-		Content: []message.Content{message.TextContent{Text: report(child.State().Messages)}},
+		Content: []message.Content{message.TextContent{Text: Report(child.State().Messages)}},
 		Details: link,
 	}, nil
 }
@@ -242,7 +263,8 @@ func slug(job string) string {
 	return strings.Join(words[:min(len(words), SLUG_WORDS)], "-")
 }
 
-func report(messages []message.Message) string {
+// Report is an agent's final answer: the text of its last assistant message.
+func Report(messages []message.Message) string {
 	for index := len(messages) - 1; index >= 0; index-- {
 		switch typed := messages[index].(type) {
 		case message.AssistantMessage:
