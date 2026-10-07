@@ -18,6 +18,8 @@ Ten events, sealed interface, same pattern as everywhere else:
 
 **Tool-level:** `ToolExecutionStartEvent` (about to execute a tool, carries the tool name and arguments), `ToolExecutionUpdateEvent` (intermediate output from a long-running tool), `ToolExecutionEndEvent` (tool finished, carries result and error status).
 
+Every event also names the agent that emitted it. Each event struct embeds a `Source`, and `AgentID()` reads it. The loop builds events without one, and `process_event` stamps the agent's ID on each event before it updates state and notifies listeners. An agent's ID comes from `WithID`; without it, `New` assigns a unique `agent-N`. The ID lets one listener route the events of several agents running at once: the `nvim` package names each agent after its session directory and sends every event into that agent's own `session.md`, which is also how a subagent's forwarded events will find its file.
+
 The layering matters. A UI subscribes to agent events. When it gets a `MessageUpdateEvent`, it unwraps the sender event inside it to get the text delta and print it. When it gets a `ToolExecutionStartEvent`, it shows which tool is running. When it gets `AgentEndEvent`, it knows the whole thing is done.
 
 `MessageUpdateEvent` wrapping a `sender.Event` is a deliberate design choice. We could re-emit every sender event as a separate agent event type, but that would double the number of event types for no real benefit. The wrapper says "something happened with the current message stream" and the consumer can type-switch on the inner event if it cares about specifics.

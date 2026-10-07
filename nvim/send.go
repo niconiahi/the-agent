@@ -85,6 +85,7 @@ func (current *frontend) run(invocation_context context.Context, prepared *reque
 	history := prepared.history()
 	last, _ := prepared.last()
 	agent := orchestrator.New(
+		orchestrator.WithID(prepared.directory),
 		orchestrator.WithModel(current.config.Model),
 		orchestrator.WithTools(current.config.Tools),
 		orchestrator.WithSystemPrompt(prepared.prompt),
@@ -94,7 +95,8 @@ func (current *frontend) run(invocation_context context.Context, prepared *reque
 		}),
 	)
 
-	agent.Subscribe(listener)
+	defer current.routes.add(agent.ID(), listener)()
+	agent.Subscribe(current.routes.route)
 	return agent.Prompt(vimtool.WithSession(invocation_context, prepared.directory, current.config.Now), last)
 }
 

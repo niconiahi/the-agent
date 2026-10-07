@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/niconiahi/the-agent/message"
@@ -15,6 +16,7 @@ import (
 type AgentOption func(*Agent)
 
 type Agent struct {
+	id              string
 	state           AgentState
 	mutex           sync.RWMutex
 	listeners       []func(AgentEvent)
@@ -33,6 +35,16 @@ type Agent struct {
 	before_tool_call  func(context.Context, BeforeToolCallContext) *BeforeToolCallResult
 	after_tool_call   func(context.Context, AfterToolCallContext) *AfterToolCallResult
 	stream_options    *sender.StreamOptions
+}
+
+var unnamed_agents atomic.Int64
+
+// WithID names the agent. Every event it emits carries this ID. Without it
+// the agent gets a unique "agent-N".
+func WithID(id string) AgentOption {
+	return func(agent *Agent) {
+		agent.id = id
+	}
 }
 
 func WithModel(target *model.Model) AgentOption {
@@ -101,6 +113,9 @@ func New(options ...AgentOption) *Agent {
 	for _, option := range options {
 		option(agent)
 	}
+	if agent.id == "" {
+		agent.id = fmt.Sprintf("agent-%d", unnamed_agents.Add(1))
+	}
 
 	agent.state.SystemPrompt = agent.system_prompt
 	agent.state.Model = agent.model_config
@@ -167,6 +182,11 @@ func (agent *Agent) PromptText(invocation_context context.Context, text string) 
 	})
 }
 
+// ID is the agent's identity, carried by every event it emits.
+func (agent *Agent) ID() string {
+	return agent.id
+}
+
 func (agent *Agent) Abort() {
 	agent.mutex.RLock()
 	cancel := agent.cancel_function
@@ -230,6 +250,7 @@ func (agent *Agent) emit(event AgentEvent) {
 }
 
 func (agent *Agent) process_event(event AgentEvent) {
+	event = event.from(Source{Agent: agent.id})
 	agent.mutex.Lock()
 	switch typed := event.(type) {
 	case MessageStartEvent:
