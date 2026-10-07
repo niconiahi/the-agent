@@ -21,7 +21,7 @@ func session_directory(invocation_context context.Context) string {
 }
 
 func Tools(client *neovim.Nvim) []tool.Tool {
-	return []tool.Tool{Read(client), Edit(client)}
+	return []tool.Tool{Read(client), Edit(client), Write(client)}
 }
 
 type region struct {
@@ -45,4 +45,13 @@ func call(client *neovim.Nvim, function string, arguments ...any) (outcome, erro
 		return outcome{}, errors.New(result.Error)
 	}
 	return result, nil
+}
+
+func change(client *neovim.Nvim, invocation_context context.Context, function string, arguments ...any) error {
+	changed, error := call(client, function, append(arguments, session_directory(invocation_context))...)
+	if error != nil {
+		return error
+	}
+	_, error = call(client, "release", changed.Region)
+	return error
 }
