@@ -461,3 +461,15 @@ Delegation is complete. A `worker` subagent also gets `edit`, `write`, `filter` 
 
 - `integration/delegate_to_worker_test.go` - a worker gets the editing tools; an agent at depth 3, or at a configured limit, gets no `task`; two `task` calls in one turn run concurrently and both reports return
 - `integration/continue_a_subagent_test.go` - continuing a child amends the parent's result on disk and in its buffer and keeps the child's role tools (explorer and worker); continuing a child whose result was deleted leaves the parent unchanged
+
+## Milestone: Stale edits rejected
+
+An agent never edits from a stale view. `edit` compares the buffer's `changedtick` with the one the calling agent recorded on its last `read` or change, and when someone else changed the buffer since, me or another agent, it fails with `file changed since you read it, re-read first` and changes nothing. The agent's own edits don't make its view stale.
+
+### Lua plugin
+
+- `buffer.lua` - `edit` runs the staleness check against `b:the_agent_ticks` before getting the buffer ready
+
+### Integration tests
+
+- `integration/reject_stale_edits_test.go` - typing after the agent's `read` rejects its `edit`; another session's edit after the agent's `read` rejects it; consecutive edits after one `read` succeed; re-reading clears the rejection
