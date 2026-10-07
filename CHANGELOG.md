@@ -397,3 +397,39 @@ I watch an `edit` happen while its arguments stream. A dedicated follow window, 
 - `partialjson/partialjson_test.go` - table tests for splits mid-key, mid-escape, mid-unicode-escape, mid-surrogate-pair and mid-UTF-8, skipped non-string values, and every byte prefix of an escape-heavy document agreeing with `encoding/json`
 - `sender/kimi_tool_call_start_test.go` - the start event names the call before its arguments stream
 - `integration/preview_streaming_edits_test.go` - the fake stream pauses between fragments to assert the follow window, highlight, virtual text, untouched buffer and unmoved current window at each stage; then the real edit with no extmarks left and one undo; abort, a failing stream and a failing edit clear the preview and leave the file byte-identical
+
+## Milestone: task tool with explorer subagents
+
+A root session's agent can delegate with `task`: a fresh explorer agent runs the job in a numbered subfolder of the session (`01-map-callers-of-foo/session.md`), linked to the same `system_prompt.md`, with the job as its timestamped first `## user` message. The child streams into its own file and only its final answer comes back as the tool result; the parent's file shows the call, a relative link to the child (`gf` opens it) and the report. `:TAAbort` on the parent aborts the child.
+
+### Package: `subagent`
+
+**Types**:
+- `Config` - model, stream options, the tools roles pick from, the `system_prompt.md` path, the `Host` and the clock
+- `Host` - `Open(path)` starts showing a child's session and returns the listener for its events and the func that ends it
+- `Link` - `Details` of a `task` result: the child's folder; `String()` is the markdown link
+
+**Constants and variables**:
+- `ROLE_EXPLORER = "explorer"`
+- `EXPLORER_TOOLS` - `read`, `grep`, `find`, `ls`, `bash_read`
+
+**Functions**:
+- `Task(config Config) tool.Tool` - the `task` tool
+- `Tools(tools []tool.Tool, names []string) []tool.Tool` - the named subset
+
+### Package: `session`
+
+- `NewLinked(link string, at time.Time) string` - `New` with a given path to `system_prompt.md`, for sessions deeper than a root session
+
+### Package: `vimtool`
+
+- `SessionDirectory(ctx) string` - the running agent's session directory set by `WithSession`
+
+### Package: `nvim`
+
+- Root agents get `task` on top of `Config.Tools`. A child's buffer is loaded without taking a window, locked while it streams, and its events go from the child agent straight to the router under the child's ID (its session directory), never through the parent.
+- The parent's writer puts the child's link between the `task` call and its result.
+
+### Integration tests
+
+- `integration/delegate_to_explorer_test.go` - a `task` call writes the numbered child file with the link and the job, the child's tool traffic stays in its file and the parent receives only the report; children are numbered in creation order; the explorer gets only reading tools and the root gets `task`; `gf` on the link opens the child; `:TAAbort` on the parent aborts and unlocks the child

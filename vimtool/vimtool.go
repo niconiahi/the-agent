@@ -27,6 +27,12 @@ func session_directory(invocation_context context.Context) string {
 	return current.directory
 }
 
+// SessionDirectory is the directory of the session.md whose agent runs the
+// tool, as set by WithSession, or "" outside a session.
+func SessionDirectory(invocation_context context.Context) string {
+	return session_directory(invocation_context)
+}
+
 func sidecar_timestamp(invocation_context context.Context) string {
 	current, _ := invocation_context.Value(session_key{}).(agent_session)
 	now := time.Now

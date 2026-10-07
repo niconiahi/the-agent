@@ -59,7 +59,7 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 		defer current.finish(buffer)
 		replies := &reply_writer{output: output, directory: prepared.directory, model: current.config.Model.ID, now: current.config.Now}
 		previews := start_previewer(client)
-		error := current.run(running.context, prepared, func(event orchestrator.AgentEvent) {
+		error := current.run(running.context, client, prepared, func(event orchestrator.AgentEvent) {
 			replies.handle(event)
 			previews.handle(event)
 		})
@@ -85,13 +85,13 @@ func (current *frontend) send(client *neovim.Nvim, buffer int) error {
 	return nil
 }
 
-func (current *frontend) run(invocation_context context.Context, prepared *request, listener func(orchestrator.AgentEvent)) error {
+func (current *frontend) run(invocation_context context.Context, client *neovim.Nvim, prepared *request, listener func(orchestrator.AgentEvent)) error {
 	history := prepared.history()
 	last, _ := prepared.last()
 	agent := orchestrator.New(
 		orchestrator.WithID(prepared.directory),
 		orchestrator.WithModel(current.config.Model),
-		orchestrator.WithTools(current.config.Tools),
+		orchestrator.WithTools(current.tools(client)),
 		orchestrator.WithSystemPrompt(prepared.prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
 		orchestrator.WithTransformContext(func(_ context.Context, messages []message.Message) []message.Message {

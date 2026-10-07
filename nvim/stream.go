@@ -13,6 +13,7 @@ import (
 	"github.com/niconiahi/the-agent/orchestrator"
 	"github.com/niconiahi/the-agent/sender"
 	"github.com/niconiahi/the-agent/session"
+	"github.com/niconiahi/the-agent/subagent"
 )
 
 const FLUSH_INTERVAL = 40 * time.Millisecond
@@ -200,7 +201,9 @@ func (writer *reply_writer) handle(event orchestrator.AgentEvent) {
 		case *message.AssistantMessage:
 			writer.end(reply)
 		case message.ToolResultMessage:
-
+			if link, ok := reply.Details.(subagent.Link); ok {
+				writer.output.begin(link.String())
+			}
 			block, error := session.ToolResultBlock(reply, writer.now(), writer.directory)
 			if error != nil {
 				writer.failure = errors.Join(writer.failure, error)

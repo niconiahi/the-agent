@@ -18,6 +18,12 @@ func New(at time.Time) string {
 	return SYSTEM_PROMPT_LINK + "\n\n" + CREATED_PREFIX + stamp(at) + "\n\n## user\n\n"
 }
 
+// NewLinked is New for a session.md that reaches system_prompt.md through
+// link, such as a subagent's, which sits deeper than a root session.
+func NewLinked(link string, at time.Time) string {
+	return "[system_prompt.md](" + link + ")\n\n" + CREATED_PREFIX + stamp(at) + "\n\n## user\n\n"
+}
+
 func (parsed *Session) SystemPromptLink() (string, bool) {
 	match := link_pattern.FindStringSubmatch(parsed.preamble)
 	if match == nil {
