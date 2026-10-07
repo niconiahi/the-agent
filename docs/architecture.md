@@ -30,7 +30,7 @@ The split follows a simple rule: if two things change for different reasons, the
 
 ## What's not here
 
-This is a POC. There's no TUI, no persistence, no context window management (the hook exists but nothing implements it), no conversation history on disk, no permission system for tools. The `cmd/agent` entry point is a bare stdin loop that prints streaming text. The architecture supports all of those things through hooks and events, but they aren't built yet.
+This is a POC. There's no TUI, no persistence, no context window management (the hook exists but nothing implements it), no conversation history on disk, no permission system for tools. The `cmd/agent` entry point only runs inside Neovim (`--nvim`, see `entry-point.md`). The architecture supports all of those things through hooks and events, but they aren't built yet.
 
 ## System dependencies
 

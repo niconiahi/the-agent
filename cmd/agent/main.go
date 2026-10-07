@@ -8,12 +8,9 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	neovim "github.com/neovim/go-client/nvim"
-	"github.com/niconiahi/the-agent/chat"
 	"github.com/niconiahi/the-agent/model"
 	"github.com/niconiahi/the-agent/nvim"
-	"github.com/niconiahi/the-agent/orchestrator"
 	"github.com/niconiahi/the-agent/sender"
 	"github.com/niconiahi/the-agent/tool"
 
@@ -22,60 +19,20 @@ import (
 
 const SYSTEM_PROMPT = `You are a coding agent. You can read, write, and edit files. You can run bash commands. You can search for files and their contents. Help the user with their coding tasks.`
 
+// USAGE is printed when the binary is run outside Neovim.
+const USAGE = `the-agent runs inside Neovim: Neovim starts it as "the-agent --nvim".
+
+Install the plugin (see extras/lazy.lua for a lazy.nvim spec), then use
+:TA <name> to open a session, :TASend to send it and :TAAbort to stop a turn.
+`
+
 func main() {
+	if len(os.Args) != 2 || os.Args[1] != "--nvim" {
+		fmt.Fprint(os.Stderr, USAGE)
+		os.Exit(2)
+	}
 	load_env(".env")
-
-	if len(os.Args) > 1 && os.Args[1] == "--nvim" {
-		run_nvim()
-		return
-	}
-
-	api_key := os.Getenv("KIMI_API_KEY")
-	if api_key == "" {
-		fmt.Fprintln(os.Stderr, "KIMI_API_KEY environment variable is required")
-		os.Exit(1)
-	}
-
-	// TODO: the verbose mode is not supposed to write to a file
-	// just as the chat goes, i want to see the reasoning and for it to stay there in the chat
-	var verbose_file *os.File
-	if os.Getenv("VERBOSE") != "" {
-		var error error
-		verbose_file, error = os.Create("agent-verbose.log")
-		if error != nil {
-			fmt.Fprintf(os.Stderr, "failed to create verbose log: %v\n", error)
-			os.Exit(1)
-		}
-		defer verbose_file.Close()
-	}
-
-	target := model.KimiK25()
-	tools := default_tools()
-
-	agent := orchestrator.New(
-		orchestrator.WithModel(&target),
-		orchestrator.WithTools(tools),
-		orchestrator.WithSystemPrompt(SYSTEM_PROMPT),
-		orchestrator.WithStreamOptions(&sender.StreamOptions{
-			APIKey: api_key,
-		}),
-	)
-
-	chat_model := chat.New(agent, target.Name)
-
-	program := tea.NewProgram(
-		chat_model,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
-
-	unsubscribe := chat.StartEventBridge(agent, program, verbose_file)
-	defer unsubscribe()
-
-	if _, error := program.Run(); error != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", error)
-		os.Exit(1)
-	}
+	run_nvim()
 }
 
 func default_tools() []tool.Tool {
