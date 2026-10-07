@@ -22,7 +22,7 @@ func TestTASend_SendsReferencedSiblingImage(t *testing.T) {
 	harness.Command("TA foo")
 	harness.SetText(harness.Text() + "what is this? ![shot](shot.png)\n")
 	harness.Command("TASend")
-	harness.WaitFor("reply", func() bool { return strings.Contains(harness.Text(), "a pixel") })
+	harness.WaitFor("the reply on disk", func() bool { return strings.Contains(on_disk(harness), "a pixel") })
 
 	content := provider.Requests()[0].Messages[0].(message.UserMessage).Content
 	if len(content) != 2 || !reflect.DeepEqual(content[1], message.ImageContent{Data: PIXEL, MimeType: "image/png"}) {

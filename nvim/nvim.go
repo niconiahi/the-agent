@@ -38,8 +38,9 @@ type Config struct {
 
 // RPC method names the Lua plugin calls with vim.rpcrequest.
 const (
-	METHOD_OPEN = "the_agent_open"
-	METHOD_SEND = "the_agent_send"
+	METHOD_OPEN  = "the_agent_open"
+	METHOD_SEND  = "the_agent_send"
+	METHOD_ABORT = "the_agent_abort"
 	// METHOD_COUNT is sent as a notification; it updates b:the_agent_tokens.
 	METHOD_COUNT = "the_agent_count"
 )
@@ -55,17 +56,18 @@ func SystemPromptPath(project string) string {
 type frontend struct {
 	config  Config
 	mutex   sync.Mutex
-	running map[int]bool
+	running map[int]*turn // by buffer
 }
 
 func Attach(client *neovim.Nvim, config Config) error {
 	if config.Now == nil {
 		config.Now = time.Now
 	}
-	current := &frontend{config: config, running: map[int]bool{}}
+	current := &frontend{config: config, running: map[int]*turn{}}
 	return errors.Join(
 		client.RegisterHandler(METHOD_OPEN, current.open),
 		client.RegisterHandler(METHOD_SEND, current.send),
+		client.RegisterHandler(METHOD_ABORT, current.abort),
 		client.RegisterHandler(METHOD_COUNT, current.refresh),
 	)
 }

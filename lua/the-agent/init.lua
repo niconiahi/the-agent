@@ -103,6 +103,10 @@ function M.send()
   vim.rpcrequest(channel(), "the_agent_send", vim.api.nvim_get_current_buf())
 end
 
+function M.abort()
+  vim.rpcrequest(channel(), "the_agent_abort", vim.api.nvim_get_current_buf())
+end
+
 -- Asks Go to recount a session buffer; the answer lands in b:the_agent_tokens.
 function M.refresh(buf)
   vim.rpcnotify(channel(), "the_agent_count", buf or vim.api.nvim_get_current_buf())

@@ -11,6 +11,10 @@ vim.api.nvim_create_user_command("TASend", function()
   require("the-agent").send()
 end, { nargs = 0, desc = "the-agent: send the current session" })
 
+vim.api.nvim_create_user_command("TAAbort", function()
+  require("the-agent").abort()
+end, { nargs = 0, desc = "the-agent: abort the current session's turn" })
+
 local group = vim.api.nvim_create_augroup("the-agent", { clear = true })
 -- `*` matches `/` in autocmd patterns, so subagent sessions match too.
 local SESSION_PATTERN = "*/.the-agent/sessions/*session.md"

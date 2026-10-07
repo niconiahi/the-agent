@@ -51,11 +51,11 @@ func TestTASend_SendsWholeSessionWithTimestamps(t *testing.T) {
 	harness.Command("TA foo")
 	harness.SetText("## user\n\none\n")
 	harness.Command("TASend")
-	harness.WaitFor("first reply", func() bool { return strings.Contains(harness.Text(), "first") })
+	harness.WaitFor("first turn to end", func() bool { return modifiable(harness) && strings.Contains(harness.Text(), "first") })
 
 	harness.SetText(harness.Text() + "two\n")
 	harness.Command("TASend")
-	harness.WaitFor("second reply", func() bool { return strings.Contains(harness.Text(), "second") })
+	harness.WaitFor("second turn to end", func() bool { return modifiable(harness) && strings.Contains(harness.Text(), "second") })
 
 	requests := provider.Requests()
 	if len(requests) != 2 {
