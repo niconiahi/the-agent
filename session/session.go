@@ -75,17 +75,36 @@ func Parse(text string) (*Session, error) {
 		offset = next
 	}
 
+	for _, current := range parsed.turns {
+		if current.role != ROLE_ASSISTANT {
+			continue
+		}
+		if _, error := assistant_messages(heading_info(current), current.body); error != nil {
+			return nil, fmt.Errorf("%s: %w", current.heading, error)
+		}
+	}
+	return parsed, nil
+}
+
+// Repair removes from the file every orphaned half of a tool pair: a
+// tool_call with no tool_result of the same id after it in its turn, or a
+// tool_result with no such tool_call before it. Messages never sends them
+// anyway, since providers reject a broken pair; Repair makes the file show
+// exactly what was sent. Thinking is never touched. It reports whether
+// anything was removed.
+func (parsed *Session) Repair() bool {
+	changed := false
 	for index := range parsed.turns {
 		current := &parsed.turns[index]
 		if current.role != ROLE_ASSISTANT {
 			continue
 		}
-		current.body = repair(current.body)
-		if _, error := assistant_messages(heading_info(*current), current.body); error != nil {
-			return nil, fmt.Errorf("%s: %w", current.heading, error)
+		if repaired := repair(current.body); repaired != current.body {
+			current.body = repaired
+			changed = true
 		}
 	}
-	return parsed, nil
+	return changed
 }
 
 func heading_role(line string) (string, bool) {
@@ -118,11 +137,14 @@ func (parsed *Session) Render() string {
 // whose text is the free-form part of its heading (timestamps included)
 // followed by the body. An assistant turn becomes its assistant message,
 // with thinking and tool_call blocks as content, followed by a tool result
-// message per tool_result block (see assistant_messages). Turns with nothing
-// to say are skipped.
+// message per tool_result block (see assistant_messages), leaving out the
+// orphans Repair removes. Turns with nothing to say are skipped.
 func (parsed *Session) Messages() []message.Message {
 	messages := []message.Message{}
 	for _, current := range parsed.turns {
+		if current.role == ROLE_ASSISTANT {
+			current.body = repair(current.body)
+		}
 		body := strings.TrimSpace(current.body)
 		if body == "" {
 			continue

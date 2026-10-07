@@ -314,10 +314,17 @@ func TestParse_DeletedToolResultRemovesItsCallFromMessagesAndFile(t *testing.T) 
 	if error != nil {
 		t.Fatalf("parse: %v", error)
 	}
+	if got := parsed.Render(); got != edited {
+		t.Fatalf("parse alone must not change the file\nwant:\n%q\ngot:\n%q", edited, got)
+	}
+	if !parsed.Repair() {
+		t.Fatal("Repair must report the removed tool_call")
+	}
 	if got := parsed.Render(); got != want {
 		t.Fatalf("file\nwant:\n%q\ngot:\n%q", want, got)
 	}
-	for _, value := range parsed.Messages() {
+	reparsed, _ := session.Parse(edited)
+	for _, value := range reparsed.Messages() {
 		assistant, ok := value.(message.AssistantMessage)
 		if !ok {
 			continue
@@ -341,17 +348,20 @@ func TestParse_DeletedToolCallRemovesItsResultFromMessagesAndFile(t *testing.T) 
 	if error != nil {
 		t.Fatalf("parse: %v", error)
 	}
-	if got := parsed.Render(); got != want {
-		t.Fatalf("file\nwant:\n%q\ngot:\n%q", want, got)
-	}
 	for _, value := range parsed.Messages() {
 		if result, ok := value.(message.ToolResultMessage); ok {
 			t.Fatalf("orphaned tool result was sent: %#v", result)
 		}
 	}
+	if !parsed.Repair() {
+		t.Fatal("Repair must report the removed tool_result")
+	}
+	if got := parsed.Render(); got != want {
+		t.Fatalf("file\nwant:\n%q\ngot:\n%q", want, got)
+	}
 }
 
-func TestParse_EditedOrDeletedThinkingIsNeverRepaired(t *testing.T) {
+func TestRepair_EditedOrDeletedThinkingIsNeverRepaired(t *testing.T) {
 	cases := map[string]string{
 		"edited":  strings.Replace(tool_session, "the handler is registered twice…", "nope, it is fine", 1),
 		"deleted": strings.Replace(tool_session, "```thinking\nthe handler is registered twice…\n```\n\n", "", 1),
@@ -362,6 +372,9 @@ func TestParse_EditedOrDeletedThinkingIsNeverRepaired(t *testing.T) {
 			parsed, error := session.Parse(text)
 			if error != nil {
 				t.Fatalf("parse: %v", error)
+			}
+			if parsed.Repair() {
+				t.Error("Repair must not report a thinking edit")
 			}
 			if got := parsed.Render(); got != text {
 				t.Fatalf("thinking edit was repaired\nwant:\n%q\ngot:\n%q", text, got)
