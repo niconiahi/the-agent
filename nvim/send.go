@@ -108,6 +108,7 @@ func (current *frontend) run(invocation_context context.Context, client *neovim.
 		orchestrator.WithTools(current.tools(client)),
 		orchestrator.WithSystemPrompt(prepared.prompt),
 		orchestrator.WithStreamOptions(current.config.StreamOptions),
+		orchestrator.WithToolExecution(orchestrator.TOOL_EXECUTION_PARALLEL),
 		orchestrator.WithTransformContext(func(_ context.Context, messages []message.Message) []message.Message {
 			return append(append([]message.Message{}, history...), messages...)
 		}),

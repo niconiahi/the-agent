@@ -56,6 +56,41 @@ func TestTask_WorkerGetsTheEditingTools(t *testing.T) {
 	}
 }
 
+func TestTask_TwoTasksInOneTurnRunConcurrently(t *testing.T) {
+	provider := nvimtest.RegisterProvider(t,
+		nvimtest.Reply{ToolCalls: []message.ToolCall{
+			call("t1", "task", map[string]any{"job": "first job"}),
+			call("t2", "task", map[string]any{"job": "second job"}),
+		}},
+		nvimtest.Text("done", 10),
+	)
+	gate := nvimtest.NewGate()
+	provider.Script("first job",
+		nvimtest.Reply{ToolCalls: []message.ToolCall{call("c1", "ls", map[string]any{})}, Gate: gate},
+		nvimtest.Text("first report", 1),
+	)
+	provider.Script("second job", nvimtest.Text("second report", 1))
+	harness := start_turn(t, nvimtest.Config())
+
+	harness.WaitFor("the second child to start while the first is held", func() bool {
+		return len(request_of(provider, "second job")) == 1
+	})
+	gate.Step(t)
+	gate.Step(t)
+	wait_for_parent(harness)
+
+	parent := request_of(provider, "go")
+	results := []string{}
+	for _, value := range parent[len(parent)-1].Messages {
+		if result, ok := value.(message.ToolResultMessage); ok {
+			results = append(results, result_text(result))
+		}
+	}
+	if !slices.Equal(results, []string{"first report", "second report"}) {
+		t.Fatalf("both reports should return to the parent, got %q", results)
+	}
+}
+
 func has_task(request sender.LLMContext) bool {
 	return slices.Contains(tool_names(request), "task")
 }

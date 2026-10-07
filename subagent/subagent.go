@@ -160,6 +160,7 @@ func (config Config) run(invocation_context context.Context, arguments map[strin
 		orchestrator.WithTools(config.tools(role, Depth(directory))),
 		orchestrator.WithSystemPrompt(prompt),
 		orchestrator.WithStreamOptions(config.StreamOptions),
+		orchestrator.WithToolExecution(orchestrator.TOOL_EXECUTION_PARALLEL),
 	)
 	child.Subscribe(listener)
 	error = child.Prompt(vimtool.WithSession(invocation_context, directory, now), first)
