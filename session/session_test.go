@@ -1,6 +1,7 @@
 package session_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -157,4 +158,142 @@ func mustTime(t *testing.T, value string) time.Time {
 		t.Fatal(error)
 	}
 	return parsed
+}
+
+func TestParse_RejectsToolCallWhoseArgumentsAreNotJSON(t *testing.T) {
+	_, error := session.Parse("## assistant\n\n```tool_call id=tc_1 name=read ts=2026-10-06T14:33:00Z\n{\"path\": \n```\n")
+	if error == nil || !strings.Contains(error.Error(), "tc_1") {
+		t.Fatalf("want an error naming tc_1, got %v", error)
+	}
+}
+
+func TestAppend_RendersThinkingToolCallsAndResultsThatParseBack(t *testing.T) {
+	at := mustTime(t, "2026-10-06T14:33:00Z")
+	parsed, _ := session.Parse("## user · 2026-10-06T14:32:00Z\n\nfix it\n")
+
+	error := parsed.AppendAssistantMessage("kimi-k2.5", at, message.AssistantMessage{
+		Content: []message.Content{
+			message.ThinkingContent{Thinking: "hmm <a> & b"},
+			message.TextContent{Text: "looking"},
+			message.ToolCall{ID: "tc_1", Name: "read", Arguments: map[string]any{"path": "a.md"}},
+		},
+		Usage: message.Usage{TotalTokens: 1240},
+	})
+	if error != nil {
+		t.Fatal(error)
+	}
+	parsed.AppendToolResult(message.ToolResultMessage{
+		ToolCallID: "tc_1",
+		ToolName:   "read",
+		Content:    []message.Content{message.TextContent{Text: "# A\n\n```go\nx\n```"}},
+	}, at)
+	parsed.AppendToolResult(message.ToolResultMessage{
+		ToolCallID: "tc_2",
+		Content:    []message.Content{message.TextContent{Text: "no such file"}},
+		IsError:    true,
+	}, at)
+	parsed.AppendAssistantMessage("kimi-k2.5", at, message.AssistantMessage{
+		Content: []message.Content{message.TextContent{Text: "done"}},
+		Usage:   message.Usage{TotalTokens: 1300},
+	})
+	parsed.AppendUser()
+
+	want := "## user · 2026-10-06T14:32:00Z\n\nfix it\n\n" +
+		"## assistant · kimi-k2.5 · 2026-10-06T14:33:00Z · 1,240 tokens\n\n" +
+		"```thinking\nhmm <a> & b\n```\n\n" +
+		"looking\n\n" +
+		"```tool_call id=tc_1 name=read ts=2026-10-06T14:33:00Z\n{\"path\":\"a.md\"}\n```\n\n" +
+		"````tool_result id=tc_1 ts=2026-10-06T14:33:00Z\n# A\n\n```go\nx\n```\n````\n\n" +
+		"```tool_result id=tc_2 ts=2026-10-06T14:33:00Z error=true\nno such file\n```\n\n" +
+		"## assistant · kimi-k2.5 · 2026-10-06T14:33:00Z · 1,300 tokens\n\ndone\n\n" +
+		"## user\n\n"
+	rendered := parsed.Render()
+	if rendered != want {
+		t.Fatalf("want\n%s\ngot\n%s", want, rendered)
+	}
+
+	reparsed, error := session.Parse(rendered)
+	if error != nil {
+		t.Fatalf("parse: %v", error)
+	}
+	messages := reparsed.Messages()
+	if len(messages) != 5 {
+		t.Fatalf("want 5 messages, got %d: %#v", len(messages), messages)
+	}
+	result, _ := messages[2].(message.ToolResultMessage)
+	if got := only_text(t, result.Content); got != "2026-10-06T14:33:00Z\n\n# A\n\n```go\nx\n```" {
+		t.Errorf("result with a code block: got %q", got)
+	}
+	failed, _ := messages[3].(message.ToolResultMessage)
+	if failed.ToolCallID != "tc_2" || !failed.IsError {
+		t.Errorf("error result: got %#v", messages[3])
+	}
+}
+
+const tool_session = "## user · 2026-10-06T14:32:00Z\n\nfix the server\n\n" +
+	"## assistant · kimi-k2.5 · 2026-10-06T14:33:00Z · 1,240 tokens\n\n" +
+	"```thinking\nthe handler is registered twice…\n```\n\n" +
+	"let me look\n\n" +
+	"```tool_call id=tc_3 name=edit ts=2026-10-06T14:33:00Z\n{\"new_text\":\"b\",\"old_text\":\"a\",\"path\":\"server.go\"}\n```\n\n" +
+	"```tool_result id=tc_3 ts=2026-10-06T14:33:01Z\nedit applied\n```\n\n" +
+	"## assistant · kimi-k2.5 · 2026-10-06T14:33:02Z · 1,300 tokens\n\n" +
+	"done, see:\n\n```go\nfunc main() {}\n```\n\n" +
+	"## user\n\n"
+
+func TestRoundTrip_ToolBlocksAreIdentity(t *testing.T) {
+	parsed, error := session.Parse(tool_session)
+	if error != nil {
+		t.Fatalf("parse: %v", error)
+	}
+	if got := parsed.Render(); got != tool_session {
+		t.Fatalf("round trip changed the file\nwant:\n%q\ngot:\n%q", tool_session, got)
+	}
+}
+
+func TestMessages_ToolBlocksBecomeToolCallsResultsAndThinking(t *testing.T) {
+	parsed, error := session.Parse(tool_session)
+	if error != nil {
+		t.Fatalf("parse: %v", error)
+	}
+	messages := parsed.Messages()
+	if len(messages) != 4 {
+		t.Fatalf("want 4 messages, got %d: %#v", len(messages), messages)
+	}
+
+	calling, ok := messages[1].(message.AssistantMessage)
+	if !ok {
+		t.Fatalf("message 1: want assistant, got %T", messages[1])
+	}
+	if len(calling.Content) != 3 {
+		t.Fatalf("message 1: want thinking, text and tool call, got %#v", calling.Content)
+	}
+	if thinking, _ := calling.Content[0].(message.ThinkingContent); thinking.Thinking != "the handler is registered twice…" {
+		t.Errorf("thinking: got %#v", calling.Content[0])
+	}
+	if text, _ := calling.Content[1].(message.TextContent); text.Text != "kimi-k2.5 · 2026-10-06T14:33:00Z · 1,240 tokens\n\nlet me look" {
+		t.Errorf("text: got %#v", calling.Content[1])
+	}
+	call, _ := calling.Content[2].(message.ToolCall)
+	if call.ID != "tc_3" || call.Name != "edit" || call.Arguments["path"] != "server.go" || call.Arguments["old_text"] != "a" || call.Arguments["new_text"] != "b" {
+		t.Errorf("tool call: got %#v", calling.Content[2])
+	}
+	if calling.StopReason != message.STOP_REASON_TOOL_USE {
+		t.Errorf("stop reason: got %q", calling.StopReason)
+	}
+
+	result, ok := messages[2].(message.ToolResultMessage)
+	if !ok {
+		t.Fatalf("message 2: want tool result, got %T", messages[2])
+	}
+	if result.ToolCallID != "tc_3" || result.ToolName != "edit" || result.IsError {
+		t.Errorf("tool result: got %#v", result)
+	}
+	if got := only_text(t, result.Content); got != "2026-10-06T14:33:01Z\n\nedit applied" {
+		t.Errorf("tool result text: got %q", got)
+	}
+
+	role, text := role_and_text(t, messages[3])
+	if role != "assistant" || text != "kimi-k2.5 · 2026-10-06T14:33:02Z · 1,300 tokens\n\ndone, see:\n\n```go\nfunc main() {}\n```" {
+		t.Errorf("message 3: got %s %q", role, text)
+	}
 }

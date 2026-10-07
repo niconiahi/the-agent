@@ -38,7 +38,7 @@ type turn struct {
 
 func Parse(text string) (*Session, error) {
 	parsed := &Session{}
-	in_fence := false
+	fence := 0 // backtick run of the open fenced block, 0 outside one
 	offset := 0
 
 	for offset < len(text) {
@@ -51,8 +51,13 @@ func Parse(text string) (*Session, error) {
 		}
 		line := text[offset:line_end]
 
-		if strings.HasPrefix(strings.TrimLeft(line, " "), "```") {
-			in_fence = !in_fence
+		in_fence := fence > 0
+		if in_fence {
+			if fence_close(line, fence) {
+				fence = 0
+			}
+		} else if run, _, ok := fence_open(line); ok {
+			fence = run
 		}
 
 		chunk := text[offset:next]
@@ -70,6 +75,14 @@ func Parse(text string) (*Session, error) {
 		offset = next
 	}
 
+	for _, current := range parsed.turns {
+		if current.role != ROLE_ASSISTANT {
+			continue
+		}
+		if _, error := assistant_messages(heading_info(current), current.body); error != nil {
+			return nil, fmt.Errorf("%s: %w", current.heading, error)
+		}
+	}
 	return parsed, nil
 }
 
@@ -99,9 +112,12 @@ func (parsed *Session) Render() string {
 	return builder.String()
 }
 
-// Messages returns what the model receives. Each turn becomes one message
+// Messages returns what the model receives. A user turn becomes one message
 // whose text is the free-form part of its heading (timestamps included)
-// followed by the body. Turns with nothing to say are skipped.
+// followed by the body. An assistant turn becomes its assistant message,
+// with thinking and tool_call blocks as content, followed by a tool result
+// message per tool_result block (see assistant_messages). Turns with nothing
+// to say are skipped.
 func (parsed *Session) Messages() []message.Message {
 	messages := []message.Message{}
 	for _, current := range parsed.turns {
@@ -109,20 +125,19 @@ func (parsed *Session) Messages() []message.Message {
 		if body == "" {
 			continue
 		}
-		text := body
-		if info := heading_info(current); info != "" {
-			text = info + "\n\n" + body
-		}
-		content := []message.Content{message.TextContent{Text: text}}
+		info := heading_info(current)
 
 		switch current.role {
 		case ROLE_USER:
-			messages = append(messages, message.UserMessage{Content: content})
+			text := body
+			if info != "" {
+				text = info + "\n\n" + body
+			}
+			messages = append(messages, message.UserMessage{Content: []message.Content{message.TextContent{Text: text}}})
 		case ROLE_ASSISTANT:
-			messages = append(messages, message.AssistantMessage{
-				Content:    content,
-				StopReason: message.STOP_REASON_STOP,
-			})
+			// Parse already rejected turns that don't convert.
+			converted, _ := assistant_messages(info, current.body)
+			messages = append(messages, converted...)
 		}
 	}
 	return messages
@@ -150,12 +165,55 @@ func (parsed *Session) StampLastUser(now time.Time) bool {
 // AppendAssistant adds an assistant turn with its model, timestamp and token
 // count in the heading.
 func (parsed *Session) AppendAssistant(model string, at time.Time, tokens int, text string) {
+	parsed.AppendAssistantMessage(model, at, message.AssistantMessage{
+		Content: []message.Content{message.TextContent{Text: text}},
+		Usage:   message.Usage{TotalTokens: tokens},
+	})
+}
+
+// AppendAssistantMessage adds an assistant turn for reply: its heading
+// carries model, at and the reply's total tokens, and its body holds the
+// reply's content in order — thinking and tool_call blocks (stamped with at)
+// and text.
+func (parsed *Session) AppendAssistantMessage(model string, at time.Time, reply message.AssistantMessage) error {
+	blocks := []string{}
+	for _, content := range reply.Content {
+		switch typed := content.(type) {
+		case message.TextContent:
+			if text := strings.TrimSpace(typed.Text); text != "" {
+				blocks = append(blocks, text)
+			}
+		case message.ThinkingContent:
+			if strings.TrimSpace(typed.Thinking) != "" {
+				blocks = append(blocks, render_thinking(typed.Thinking))
+			}
+		case message.ToolCall:
+			block, error := render_tool_call(typed, at)
+			if error != nil {
+				return error
+			}
+			blocks = append(blocks, block)
+		}
+	}
 	parsed.separate()
 	parsed.turns = append(parsed.turns, turn{
 		role:    ROLE_ASSISTANT,
-		heading: fmt.Sprintf("## assistant · %s · %s · %s tokens", model, at.UTC().Format(TIMESTAMP_FORMAT), thousands(tokens)),
-		body:    "\n\n" + strings.TrimSpace(text) + "\n",
+		heading: fmt.Sprintf("## assistant · %s · %s · %s tokens", model, stamp(at), thousands(reply.Usage.TotalTokens)),
+		body:    "\n\n" + strings.Join(blocks, "\n\n") + "\n",
 	})
+	return nil
+}
+
+// AppendToolResult adds result as a tool_result block, stamped with at, to
+// the end of the last turn (the assistant turn that called the tool).
+func (parsed *Session) AppendToolResult(result message.ToolResultMessage, at time.Time) {
+	parsed.separate()
+	block := render_tool_result(result, at) + "\n"
+	if len(parsed.turns) == 0 {
+		parsed.preamble += block
+		return
+	}
+	parsed.turns[len(parsed.turns)-1].body += block
 }
 
 // AppendUser adds a bare "## user" heading for the next message; it is
